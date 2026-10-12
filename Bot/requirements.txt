@@ -1,0 +1,86 @@
+# ============================================================================
+# Bot 端运行依赖（版本按实际运行环境 MyAI 锁定，Windows + Python 3.11）
+#
+# 安装：conda activate MyAI
+#       pip install -r Bot/requirements.txt
+#
+# ── Bot 的依赖分三份，本文件是"公共/必需"那一份 ─────────────────────────────
+#   Bot/requirements.txt           公共（本文件）—— 不装跑不起来
+#   Bot/requirements-ui.txt        桌宠界面（PySide6）—— 纯控制台模式可跳过
+#   Bot/requirements-optional.txt  可选功能（TurnSense 音频前端 / 降噪）—— 缺了会降级
+#
+# 另外必须手动安装共享协议包（不在 PyPI 上，源码在仓库里）：
+#   pip install -e con-datapack-1.11
+# 否则 Bot 与 Core 都会 import condata 失败。
+# ============================================================================
+
+# ---- 基础 ----
+pydantic==2.11.0
+typeguard==4.5.2
+loguru==0.7.3
+pyyaml==6.0.3
+requests==2.34.2
+retry==0.9.2
+watchdog==6.0.0
+python-magic==0.4.27
+
+# ---- 音频 / 语音 ----
+numpy==1.26.4
+scipy==1.17.1
+soundfile==0.12.1
+sounddevice==0.5.5         # devices/speaker.py:16 顶层 import（播放），必需
+pydub==0.25.1
+pyaudio==0.2.14
+webrtcvad==2.0.10
+pygame==2.6.1
+librosa==0.10.2.post1
+
+# ---- 图像 / 屏幕 ----
+pillow==12.2.0
+pyautogui==0.9.54
+# Linux 下额外需要：mss
+
+# ---- 网络 / 模型接口 ----
+websockets==15.1
+openai==2.41.1
+
+# ---- TurnSense 语义端点检测（Bot 侧本地推理，纯 CPU）----
+# turnsense.backend 默认是 'onnx'；缺这个包时会静默退化成 heuristic 规则判定，
+# 端点检测质量明显下降（日志里有一条 warning）。不需要 GPU，CPU 版即可。
+onnxruntime==1.27.0
+# 音频 ONNX 前端还要 kaldi_native_fbank（pipeline/asr/turnsense.py:36,62），
+# 它是**可选**的：缺了就只用文本 ONNX，见 Bot/requirements-optional.txt
+
+# ---- 桌宠界面（Qt）----
+# PySide6 **不在本文件**，见 Bot/requirements-ui.txt：
+#   纯控制台模式（service.desktop_shell.enable=false）不需要它。
+
+# ---- 输入 ----
+pynput==1.8.2
+
+# ---- 开发 / 测试（非开发者可删）----
+pytest==9.0.3
+pytest-asyncio==1.4.0
+setuptools==69.5.1
+
+# ============================================================================
+# 说明：Bot 侧默认**不需要 torch / GPU**（全部模型推理都通过 HTTP 发给 Core）。
+# 唯一例外是 TurnSense 的 'transformers' 后端（见 pipeline/asr/turnsense.py:399），
+# 它 import torch 但属可选路径——默认走 'onnx' 后端，不触发该分支。
+# 若日志出现 "TurnSense backend ... unavailable; using heuristic fallback"，
+# 说明 onnxruntime 没装上，端点检测会退化为规则判定。
+# ============================================================================
+
+# ============================================================================
+# 已移除（确认无代码引用，或对应模块已删除）：
+#   live2d-py / PyQt5 / gradio            Live2D 未接入；WebUI 已删除（P1-23/24）
+#   selenium                              浏览器读取改用自带 HTTP reader
+#   flask                                 旧配置页依赖
+#   langchain / langgraph / langchain-core  agent/ 是历史遗留，运行时不引用
+#   bilibili-api-python / twitchAPI / ncatbot  直播与 QQ 机器人功能未使用
+#   netifaces / injector / transitions     无 import
+#
+# 已加回（此前误判为"无引用"被删）：
+#   sounddevice   devices/speaker.py:16、pipeline/asr/desktop_capture.py:3 顶层 import
+#   kaldi_native_fbank  pipeline/asr/turnsense.py:36,62 —— 属可选，放在 requirements-optional.txt
+# ============================================================================

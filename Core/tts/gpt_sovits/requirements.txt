@@ -1,0 +1,13 @@
+# 实现：Core/tts/gpt_sovits/model.py —— Core 侧的 tts 服务（HTTP 转发给 GPT-SoVITS）
+# 环境：GPTSoVits    入口：starter.py tts
+#
+# ⚠️ registry.json 现在用的是 GPT-SoVITS 自己的 zongzi_api.py，**不是**这一条。
+#    想用这一条再装本文件；两条都装也能共存（端口不同）。
+
+flask==3.1.3            # Core/tts/app.py（HTTP 服务层）
+pydantic
+loguru
+requests
+
+# 注意：真正的推理在 Core/GPT-SoVITS/ 里跑，那边自己的依赖见
+# Core/GPT-SoVITS/requirements.txt；本文件不含任何推理依赖。

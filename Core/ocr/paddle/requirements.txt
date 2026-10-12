@@ -1,0 +1,12 @@
+# 服务：ocr —— 实现：Core/ocr/paddle/model.py（PaddleOCR）
+# 可选服务：Core/agent-stack/registry.json 里**没有登记**，默认不部署
+#
+# 安装：
+#   pip install -r Core/ocr/paddle/requirements.txt
+#
+# ⚠️ paddlepaddle 的 Windows 轮子对 Python 版本和 CUDA 版本都很挑，官方还有独立的
+#    索引（同目录 pyproject.toml 里配的是 https://www.paddlepaddle.org.cn/packages/stable/cu118/）。
+#    **本项目没有实测过这条路线**，装之前先确认你的 Python 版本有对应轮子。
+
+paddleocr
+# paddlepaddle-gpu   # 或 paddlepaddle（CPU 版）；走官方索引装

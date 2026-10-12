@@ -1,0 +1,20 @@
+/.vscode
+**/__pycache__
+config.yaml
+/.idea
+config.yaml.bak
+test.py
+/.temp
+*.png
+/.data
+/scripts
+# agent-stack 运行时产物：pid、state.json、resolved 启动脚本与合并日志
+/agent-stack/runtime/
+# 本地测试与大模型权重
+# 注意：Core/tests/ 随仓库发布（离线测试资源），权重与 onnx 模型不入库
+/models/
+**/*.onnx
+**/*.onnx_data
+asr/Qwen3ASR06B/model.safetensors
+asr/Qwen3ASR06B/.msc
+asr/Qwen3ASR06B/.mv

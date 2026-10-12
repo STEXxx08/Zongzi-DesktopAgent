@@ -1,0 +1,16 @@
+# 路线 A：sherpa-onnx
+# 实现：Core/asr/sherpa_onnx/model.py:26
+# 当前 Core/config.yaml 的 ASR.id 就是这条；**不需要 torch、不需要 flash-attn**
+#
+# 安装：
+#   pip install -r Core/requirements-qwen3-asr.txt   （公共部分）
+#   pip install -r Core/asr/sherpa_onnx/requirements.txt
+#
+# 状态：✅ 可直接装
+
+sherpa-onnx==1.13.3
+
+# ⚠️ PyPI 上的 1.13.3 是 CPU 版（文件名里没有 cuda 标记）。
+#    想用 CUDA 版就装仓库里那个轮子 —— 装完之后再执行上面的 pip install 不会重装，
+#    因为 `sherpa-onnx==1.13.3` 能匹配 `1.13.3+cuda12.cudnn9`：
+#      pip install Core/sherpa_onnx-1.13.3+cuda12.cudnn9-cp312-cp312-win_amd64.whl

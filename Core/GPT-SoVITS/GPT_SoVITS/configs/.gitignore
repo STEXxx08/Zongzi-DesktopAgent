@@ -1,0 +1,10 @@
+*.yaml
+# 上游默认忽略全部 yaml；以下 core 侧预训练配置是随仓库发布的源码，显式放行。
+!.gitignore
+!s1.yaml
+!s1big.yaml
+!s1big2.yaml
+!s1longer.yaml
+!s1longer-v2.yaml
+!s1mq.yaml
+!train.yaml

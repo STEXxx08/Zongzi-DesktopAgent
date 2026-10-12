@@ -1,0 +1,34 @@
+# ============================================================================
+# conda 环境：qwen3-asr
+# 服务：asr（Core/agent-stack/registry.json 里的 asr）
+# Python：3.11 ~ 3.12；**选路线 B（Qwen3-ASR）时必须 3.12**（flash-attn 只出了 cp312 轮子）
+#
+# ── ASR 有三条路线，pip 不会替你选 ──────────────────────────────────────────
+#   requirements 文件是**平铺清单**，没有 if/else —— 它只会把文件里列出的包全装上。
+#   所以这里把「公共部分」和「每条路线」拆开：**你选哪条，就多装那一份**。
+#
+#     路线                        依赖文件                                 需要 GPU
+#     A  sherpa-onnx（推荐）       Core/asr/sherpa_onnx/requirements.txt    ✅（也可 CPU）
+#     B  Qwen3-ASR-0.6B           Core/asr/Qwen3ASR06B/requirements.txt    ✅ + flash-attn
+#     C  Paraformer（funasr）      Core/asr/paraformer/requirements.txt     ✅
+#
+#   安装 = 公共（本文件）+ 你选的那一份，例如走路线 A：
+#     pip install -r Core/requirements-qwen3-asr.txt
+#     pip install -r Core/asr/sherpa_onnx/requirements.txt
+#
+#   （这个"公共 + 每套实现一份"的模式对任何一服务多实现都适用，以后 TTS / LLM 要拆照抄即可）
+#
+# ── 系统依赖（不是 pip 包）───────────────────────────────────────────────────
+#   ffmpeg：Core/asr/app.py:38 会调 Core/utils/audio_util.py 的 convert_to_mono()，
+#           内部用 subprocess 调 ffmpeg，必须能在 PATH 里找到
+#
+# ⚠️ 完整实测快照见 环境快照/environment-qwen3-asr.yml
+# ============================================================================
+
+# ---- 公共：三条路线都要 ----
+pydantic>=2.5,<3
+loguru
+requests
+PyYAML
+typing-extensions
+numpy==2.4.6             # Core/utils/audio_util.py:1

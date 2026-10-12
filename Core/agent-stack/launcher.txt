@@ -1,0 +1,768 @@
+[CmdletBinding()]
+param(
+    [ValidateSet("start", "stop", "restart", "status", "logs", "validate")]
+    [string]$Action = "start",
+    [string]$Registry = "agent-stack.registry.json",
+    [string]$Service = "",
+    [int]$StartupTimeoutSeconds = 0,
+    [ValidateSet("auto", "tabs", "windows")]
+    [string]$TerminalMode = "auto",
+    [switch]$Hidden,
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectRoot
+)
+
+$ErrorActionPreference = "Stop"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+$script:Root = [System.IO.Path]::GetFullPath($ProjectRoot)
+$script:Data = $null
+$script:RuntimeDirectory = $null
+$script:LogDirectory = $null
+$script:StateFile = $null
+$script:CombinedLogFile = $null
+$script:ServiceHostScript = $null
+$script:EffectiveTerminalMode = $null
+$script:State = @()
+
+function Resolve-ProjectPath([string]$Path) {
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $script:Root $Path))
+}
+
+function Read-Registry {
+    $path = Resolve-ProjectPath $Registry
+    if (-not (Test-Path $path -PathType Leaf)) {
+        throw "Registry file not found: $Registry"
+    }
+    try {
+        $data = Get-Content $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        throw "Registry JSON is invalid: $($_.Exception.Message)"
+    }
+    if ($data.version -ne 1) {
+        throw "Unsupported registry version '$($data.version)'. Expected version 1."
+    }
+
+    $names = @{}
+    foreach ($item in @($data.services)) {
+        if (-not $item.name) {
+            throw "Every service must have a name."
+        }
+        if ($names.ContainsKey([string]$item.name)) {
+            throw "Duplicate service name: $($item.name)"
+        }
+        $names[[string]$item.name] = $true
+        if ($item.runner -notin @("conda", "process", "wsl-systemd")) {
+            throw "Service '$($item.name)' has unsupported runner '$($item.runner)'."
+        }
+        if ($item.runner -eq "conda" -and -not $item.environment) {
+            throw "Conda service '$($item.name)' must define environment."
+        }
+        if ($item.runner -in @("conda", "process")) {
+            if (-not $item.command) {
+                throw "Service '$($item.name)' must define command."
+            }
+            $workingDirectory = Resolve-ProjectPath ([string]$item.working_directory)
+            if (-not (Test-Path $workingDirectory -PathType Container)) {
+                throw "Working directory for '$($item.name)' does not exist: $($item.working_directory)"
+            }
+        }
+        if ($item.runner -eq "wsl-systemd" -and -not $item.unit) {
+            throw "WSL service '$($item.name)' must define unit."
+        }
+        if ($item.health -and $item.health.type -eq "tcp" -and -not $item.health.port) {
+            throw "TCP health check for '$($item.name)' must define port."
+        }
+    }
+    foreach ($dependency in @($data.settings.optional_dependencies)) {
+        if (-not $dependency.name) {
+            throw "Every optional dependency must have a name."
+        }
+        if ($dependency.runner -ne "wsl-systemd") {
+            throw "Optional dependency '$($dependency.name)' has unsupported runner '$($dependency.runner)'."
+        }
+        if (-not $dependency.unit) {
+            throw "Optional dependency '$($dependency.name)' must define unit."
+        }
+    }
+    return $data
+}
+
+function Initialize-Runtime {
+    $runtimeName = if ($script:Data.settings.runtime_directory) {
+        [string]$script:Data.settings.runtime_directory
+    }
+    else {
+        ".agent-stack"
+    }
+    $script:RuntimeDirectory = Resolve-ProjectPath $runtimeName
+    $script:LogDirectory = Join-Path $script:RuntimeDirectory "logs"
+    $script:StateFile = Join-Path $script:RuntimeDirectory "state.json"
+    New-Item -ItemType Directory -Force -Path $script:LogDirectory | Out-Null
+    $combinedLogName = if ($script:Data.settings.combined_log_file) {
+        [string]$script:Data.settings.combined_log_file
+    }
+    else {
+        "combined.log"
+    }
+    $script:CombinedLogFile = Join-Path $script:LogDirectory $combinedLogName
+
+    $hostSource = Resolve-ProjectPath "agent-stack/service-host.txt"
+    if (-not (Test-Path $hostSource -PathType Leaf)) {
+        throw "Service host source is missing: agent-stack/service-host.txt"
+    }
+    $script:ServiceHostScript = Join-Path $script:RuntimeDirectory "service-host.ps1"
+    Copy-Item $hostSource $script:ServiceHostScript -Force
+
+    if ($Hidden) {
+        $script:EffectiveTerminalMode = "hidden"
+    }
+    elseif ($TerminalMode -eq "tabs" -or ($TerminalMode -eq "auto" -and (Get-Command "wt.exe" -ErrorAction SilentlyContinue))) {
+        if (-not (Get-Command "wt.exe" -ErrorAction SilentlyContinue)) {
+            throw "Terminal mode 'tabs' requires Windows Terminal (wt.exe)."
+        }
+        $script:EffectiveTerminalMode = "tabs"
+    }
+    else {
+        $script:EffectiveTerminalMode = "windows"
+    }
+}
+
+function Get-Services {
+    return @($script:Data.services | Where-Object { $_.enabled -ne $false })
+}
+
+function Read-State {
+    if (-not (Test-Path $script:StateFile -PathType Leaf)) {
+        return @()
+    }
+    try {
+        return @(Get-Content $script:StateFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+    }
+    catch {
+        Write-Warning "Ignoring invalid state file: $script:StateFile"
+        return @()
+    }
+}
+
+function Write-State {
+    ConvertTo-Json -InputObject @($script:State) -Depth 6 |
+        Set-Content -Path $script:StateFile -Encoding UTF8
+}
+
+function Get-StateEntry([string]$Name) {
+    return $script:State | Where-Object { $_.name -eq $Name } | Select-Object -First 1
+}
+
+function Test-ProcessRunning([int]$ProcessId) {
+    return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Test-TcpPort([string]$HostName, [int]$Port) {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $result = $client.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $result.AsyncWaitHandle.WaitOne(300)) {
+            return $false
+        }
+        $client.EndConnect($result)
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        $client.Close()
+    }
+}
+
+function Get-CondaBatch {
+    $candidates = @()
+    if ($env:CONDA_BAT) {
+        $candidates += $env:CONDA_BAT
+    }
+    if ($env:CONDA_EXE -and (Test-Path $env:CONDA_EXE -PathType Leaf)) {
+        $exeDirectory = Split-Path $env:CONDA_EXE -Parent
+        $condaRoot = Split-Path $exeDirectory -Parent
+        $candidates += (Join-Path $condaRoot "condabin/conda.bat")
+    }
+    if ($env:USERPROFILE) {
+        $candidates += @(
+            (Join-Path $env:USERPROFILE "miniconda3/condabin/conda.bat"),
+            (Join-Path $env:USERPROFILE "anaconda3/condabin/conda.bat")
+        )
+    }
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate -PathType Leaf)) {
+            return $candidate
+        }
+    }
+    $command = Get-Command "conda.bat" -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+    throw "Cannot find conda.bat. Run from Anaconda Prompt or set CONDA_BAT."
+}
+
+function Get-WslArguments([string]$Distro, [array]$CommandArguments) {
+    $arguments = @()
+    if ($Distro) {
+        $arguments += @("-d", $Distro)
+    }
+    $arguments += "--"
+    $arguments += $CommandArguments
+    return $arguments
+}
+
+function Invoke-Wsl([string]$Distro, [array]$CommandArguments, [switch]$Quiet) {
+    $arguments = Get-WslArguments $Distro $CommandArguments
+    if ($Quiet) {
+        & wsl.exe @arguments 2>&1 | Out-Null
+    }
+    else {
+        & wsl.exe @arguments | Out-Host
+    }
+    return $LASTEXITCODE
+}
+
+function Test-WslUnit([string]$Distro, [string]$Unit) {
+    $exitCode = Invoke-Wsl $Distro @("systemctl", "is-active", "--quiet", $Unit) -Quiet
+    return $exitCode -eq 0
+}
+
+function Encode-Text([string]$Value) {
+    return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Value))
+}
+
+function Quote-CmdToken([string]$Value) {
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Quote-NativeArgument([string]$Value) {
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Join-NativeArguments([array]$Values) {
+    return ($Values | ForEach-Object { Quote-NativeArgument ([string]$_) }) -join " "
+}
+
+function Wait-ServiceHostPid([string]$PidFile, [int]$FallbackPid) {
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $PidFile -PathType Leaf) {
+            $value = (Get-Content $PidFile -Raw).Trim()
+            if ($value -match '^\d+$' -and (Test-ProcessRunning ([int]$value))) {
+                return [int]$value
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($FallbackPid -gt 0 -and (Test-ProcessRunning $FallbackPid)) {
+        return $FallbackPid
+    }
+    throw "Service host did not publish a PID: $PidFile"
+}
+
+function Wait-CondaActivation([string]$MarkerFile, [int]$HostPid, [string]$ServiceName) {
+    $timeout = if ($script:Data.settings.activation_timeout_seconds) {
+        [int]$script:Data.settings.activation_timeout_seconds
+    }
+    else {
+        60
+    }
+    $deadline = (Get-Date).AddSeconds($timeout)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $MarkerFile -PathType Leaf) {
+            Remove-Item $MarkerFile -Force -ErrorAction SilentlyContinue
+            Write-Host ("[active] {0,-13} conda environment ready" -f $ServiceName)
+            return
+        }
+        if (-not (Test-ProcessRunning $HostPid)) {
+            throw "Conda activation failed for service '$ServiceName'. Check the combined log."
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Conda activation timed out after $timeout seconds for service '$ServiceName'."
+}
+
+function Start-Local($Definition) {
+    $workingDirectory = Resolve-ProjectPath ([string]$Definition.working_directory)
+    $commandArguments = @($Definition.arguments)
+    $activationMarker = $null
+
+    if ($Definition.runner -eq "conda") {
+        # Use an isolated cmd.exe activation per service, matching the original
+        # manual workflow. Start-Local waits for the marker below, so older
+        # Conda versions cannot activate multiple environments concurrently and
+        # collide on __conda_tmp_*.txt.
+        $condaBatch = Get-CondaBatch
+        $serviceTokens = @([string]$Definition.command) + @($commandArguments | ForEach-Object { [string]$_ })
+        $serviceCommand = ($serviceTokens | ForEach-Object { Quote-CmdToken $_ }) -join " "
+        $activationMarker = Join-Path $script:RuntimeDirectory ($Definition.name + ".activated")
+        Remove-Item $activationMarker -Force -ErrorAction SilentlyContinue
+        $commandLine = "call " + (Quote-CmdToken $condaBatch) + " activate " +
+            (Quote-CmdToken ([string]$Definition.environment)) + " && echo activated > " +
+            (Quote-CmdToken $activationMarker) + " && " + $serviceCommand
+    }
+    else {
+        $filePath = [string]$Definition.command
+        $possibleProjectFile = Resolve-ProjectPath $filePath
+        if (Test-Path $possibleProjectFile -PathType Leaf) {
+            $filePath = $possibleProjectFile
+        }
+        $tokens = @([string]$filePath) + @($commandArguments | ForEach-Object { [string]$_ })
+        $commandLine = ($tokens | ForEach-Object { Quote-CmdToken $_ }) -join " "
+    }
+    $commandLine = "chcp 65001 >nul && set `"PYTHONUTF8=1`" && set `"PYTHONIOENCODING=utf-8`" && " + $commandLine
+    $pidFile = Join-Path $script:RuntimeDirectory ($Definition.name + ".host.pid")
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+
+    $hostArguments = @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", $script:ServiceHostScript,
+        "-Name", [string]$Definition.name,
+        "-WorkingDirectoryBase64", (Encode-Text $workingDirectory),
+        "-CommandBase64", (Encode-Text $commandLine),
+        "-AggregateLogBase64", (Encode-Text $script:CombinedLogFile),
+        "-PidFileBase64", (Encode-Text $pidFile)
+    )
+    $powerShellExecutable = Join-Path $PSHOME "powershell.exe"
+    if (-not (Test-Path $powerShellExecutable -PathType Leaf)) {
+        $powerShellExecutable = "powershell.exe"
+    }
+
+    Write-Host ("[start] {0,-14} runner={1} terminal={2}" -f $Definition.name, $Definition.runner, $script:EffectiveTerminalMode)
+    $fallbackPid = 0
+    if ($script:EffectiveTerminalMode -eq "tabs") {
+        # Invoke wt.exe directly so PowerShell passes every item separately.
+        # Start-Process with one joined ArgumentList can make Windows Terminal
+        # interpret the entire command as an executable name (0x80070002).
+        $terminalArguments = @("-w", "AgentStack", "new-tab", "--title", [string]$Definition.name, $powerShellExecutable) + $hostArguments
+        & wt.exe @terminalArguments | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Windows Terminal failed to create the '$($Definition.name)' tab (exit code $LASTEXITCODE)."
+        }
+    }
+    else {
+        $startParameters = @{
+            FilePath = $powerShellExecutable
+            ArgumentList = (Join-NativeArguments $hostArguments)
+            PassThru = $true
+        }
+        if ($script:EffectiveTerminalMode -eq "hidden") {
+            $startParameters.WindowStyle = "Hidden"
+        }
+        $hostProcess = Start-Process @startParameters
+        $fallbackPid = $hostProcess.Id
+    }
+
+    $hostPid = Wait-ServiceHostPid $pidFile $fallbackPid
+    if ($activationMarker) {
+        # Start-All calls Start-One sequentially. Waiting only for this marker
+        # serializes the short Conda activation phase while model loading still
+        # continues concurrently in the already-started service tabs.
+        Wait-CondaActivation $activationMarker $hostPid ([string]$Definition.name)
+    }
+
+    $script:State += [pscustomobject]@{
+        name = [string]$Definition.name
+        runner = [string]$Definition.runner
+        pid = $hostPid
+        terminal_mode = $script:EffectiveTerminalMode
+        started_at = (Get-Date).ToString("o")
+    }
+    Write-State
+}
+
+function Start-WslSystemd($Definition) {
+    $arguments = @()
+    if ($Definition.sudo -ne $false) {
+        $arguments += "sudo"
+    }
+    $arguments += @("systemctl", "start", [string]$Definition.unit)
+    Write-Host ("[start] {0,-14} runner=wsl-systemd" -f $Definition.name)
+    $exitCode = Invoke-Wsl ([string]$Definition.distro) $arguments
+    if ($exitCode -ne 0) {
+        throw "Failed to start WSL unit '$($Definition.unit)' (exit code $exitCode)."
+    }
+    $script:State += [pscustomobject]@{
+        name = [string]$Definition.name
+        runner = "wsl-systemd"
+        distro = [string]$Definition.distro
+        unit = [string]$Definition.unit
+        sudo = ($Definition.sudo -ne $false)
+        started_at = (Get-Date).ToString("o")
+    }
+    Write-State
+}
+
+function Start-One($Definition) {
+    switch ($Definition.runner) {
+        "conda" { Start-Local $Definition }
+        "process" { Start-Local $Definition }
+        "wsl-systemd" { Start-WslSystemd $Definition }
+    }
+}
+
+function Test-Healthy($Definition) {
+    $entry = Get-StateEntry ([string]$Definition.name)
+    if (-not $entry) {
+        return $false
+    }
+    if ($Definition.runner -in @("conda", "process") -and -not (Test-ProcessRunning ([int]$entry.pid))) {
+        return $false
+    }
+    if (-not $Definition.health -or $Definition.health.type -eq "process") {
+        return $true
+    }
+    if ($Definition.health.type -eq "tcp") {
+        $hostName = if ($Definition.health.host) { [string]$Definition.health.host } else { "127.0.0.1" }
+        return Test-TcpPort $hostName ([int]$Definition.health.port)
+    }
+    if ($Definition.health.type -eq "systemd") {
+        return Test-WslUnit ([string]$Definition.distro) ([string]$Definition.unit)
+    }
+    throw "Unsupported health check for '$($Definition.name)': $($Definition.health.type)"
+}
+
+function Get-ErrorTail($Definition) {
+    if ($Definition.runner -notin @("conda", "process")) {
+        return ""
+    }
+    if (-not (Test-Path $script:CombinedLogFile -PathType Leaf)) {
+        return "No error log was produced."
+    }
+    $marker = "[$($Definition.name)]"
+    return (Get-Content $script:CombinedLogFile -Encoding UTF8 | Where-Object { $_.Contains($marker) } | Select-Object -Last 25) -join [Environment]::NewLine
+}
+
+function Wait-Group([array]$Definitions) {
+    $configuredTimeout = if ($script:Data.settings.startup_timeout_seconds) {
+        [int]$script:Data.settings.startup_timeout_seconds
+    }
+    else {
+        300
+    }
+    $timeout = if ($StartupTimeoutSeconds -gt 0) { $StartupTimeoutSeconds } else { $configuredTimeout }
+    $poll = if ($script:Data.settings.poll_interval_seconds) {
+        [int]$script:Data.settings.poll_interval_seconds
+    }
+    else {
+        1
+    }
+
+    $grace = 0
+    foreach ($definition in $Definitions) {
+        if ($definition.health.grace_seconds -and [int]$definition.health.grace_seconds -gt $grace) {
+            $grace = [int]$definition.health.grace_seconds
+        }
+    }
+    if ($grace -gt 0) {
+        Start-Sleep -Seconds $grace
+    }
+
+    $pending = @($Definitions)
+    $deadline = (Get-Date).AddSeconds($timeout)
+    while ($pending.Count -gt 0 -and (Get-Date) -lt $deadline) {
+        $next = @()
+        foreach ($definition in $pending) {
+            $entry = Get-StateEntry ([string]$definition.name)
+            if ($definition.runner -in @("conda", "process") -and -not (Test-ProcessRunning ([int]$entry.pid))) {
+                $tail = Get-ErrorTail $definition
+                throw "Service '$($definition.name)' exited during startup.`n$tail"
+            }
+            if (Test-Healthy $definition) {
+                Write-Host ("[ready] {0}" -f $definition.name)
+            }
+            else {
+                $next += $definition
+            }
+        }
+        $pending = @($next)
+        if ($pending.Count -gt 0) {
+            Start-Sleep -Seconds $poll
+        }
+    }
+    if ($pending.Count -gt 0) {
+        $names = ($pending | ForEach-Object { $_.name }) -join ", "
+        throw "Startup timed out after $timeout seconds: $names"
+    }
+}
+
+function Stop-One($Entry) {
+    if ($Entry.runner -in @("conda", "process")) {
+        if (Test-ProcessRunning ([int]$Entry.pid)) {
+            Write-Host ("[stop]  {0,-14} pid={1}" -f $Entry.name, $Entry.pid)
+            & taskkill.exe /PID $Entry.pid /T /F 2>&1 | Out-Null
+        }
+        else {
+            Write-Host ("[gone]  {0,-14} pid={1}" -f $Entry.name, $Entry.pid)
+        }
+        return
+    }
+    if ($Entry.runner -eq "wsl-systemd") {
+        $arguments = @()
+        if ($Entry.sudo -ne $false) {
+            $arguments += "sudo"
+        }
+        $arguments += @("systemctl", "stop", [string]$Entry.unit)
+        Write-Host ("[stop]  {0,-14} unit={1}" -f $Entry.name, $Entry.unit)
+        $exitCode = Invoke-Wsl ([string]$Entry.distro) $arguments
+        if ($exitCode -ne 0) {
+            Write-Warning "Failed to stop '$($Entry.unit)' (exit code $exitCode)."
+        }
+    }
+}
+
+function Get-RegisteredListeningProcessIds {
+    $processIds = @()
+    $ports = @(Get-Services | Where-Object {
+        $_.health -and $_.health.type -eq "tcp"
+    } | ForEach-Object { [int]$_.health.port } | Sort-Object -Unique)
+
+    if (Get-Command "Get-NetTCPConnection" -ErrorAction SilentlyContinue) {
+        foreach ($port in $ports) {
+            $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+            $processIds += @($connections | ForEach-Object { [int]$_.OwningProcess })
+        }
+    }
+    else {
+        $lines = @(& netstat.exe -ano -p tcp 2>$null)
+        foreach ($port in $ports) {
+            foreach ($line in $lines) {
+                if ($line -match ("^\s*TCP\s+\S+:" + $port + "\s+\S+\s+LISTENING\s+(\d+)\s*$")) {
+                    $processIds += [int]$Matches[1]
+                }
+            }
+        }
+    }
+    return @($processIds | Where-Object { $_ -gt 0 -and $_ -ne $PID } | Sort-Object -Unique)
+}
+
+function Stop-RegisteredPortProcesses {
+    foreach ($processId in @(Get-RegisteredListeningProcessIds)) {
+        if (Test-ProcessRunning $processId) {
+            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+            $processName = if ($process) { $process.ProcessName } else { "unknown" }
+            Write-Host ("[cleanup] listener pid={0} process={1}" -f $processId, $processName)
+            & taskkill.exe /PID $processId /T /F 2>&1 | Out-Null
+        }
+    }
+}
+
+function Stop-RuntimeHostProcesses {
+    $pidFiles = @(Get-ChildItem $script:RuntimeDirectory -File -Filter "*.host.pid" -ErrorAction SilentlyContinue)
+    foreach ($pidFile in $pidFiles) {
+        $rawValue = Get-Content $pidFile.FullName -Raw -ErrorAction SilentlyContinue
+        $value = if ($null -ne $rawValue) { $rawValue.Trim() } else { "" }
+        if ($value -match '^\d+$') {
+            $hostPid = [int]$value
+            if ($hostPid -ne $PID -and (Test-ProcessRunning $hostPid)) {
+                Write-Host ("[cleanup] uncommitted host pid={0}" -f $hostPid)
+                & taskkill.exe /PID $hostPid /T /F 2>&1 | Out-Null
+            }
+        }
+        Remove-Item $pidFile.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Stop-All {
+    $script:State = @(Read-State)
+    [array]::Reverse($script:State)
+    foreach ($entry in $script:State) {
+        Stop-One $entry
+    }
+    Stop-RuntimeHostProcesses
+    # A service can bind its port before its host PID is persisted. Sweep all
+    # registered listening ports so a failed transaction cannot leave Python
+    # processes blocking the next startup.
+    Stop-RegisteredPortProcesses
+    $script:State = @()
+    Remove-Item $script:StateFile -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $script:RuntimeDirectory "*.host.pid") -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $script:RuntimeDirectory "*.activated") -Force -ErrorAction SilentlyContinue
+    foreach ($dependency in @(Get-OptionalDependencies)) {
+        # Optional infrastructure is shared (SearXNG is used outside this stack
+        # too), so 'stop' deliberately leaves it running.
+        Write-Host ("[deps]  left running: {0} (unit={1})" -f $dependency.name, $dependency.unit)
+    }
+}
+
+function Get-OptionalDependencies {
+    # Best-effort infrastructure declared in settings.optional_dependencies
+    # (for example SearXNG inside WSL). These are NOT part of the stack
+    # lifecycle: they are only started, never stopped by 'stop', and never
+    # recorded in state.json.
+    $declared = @()
+    if ($script:Data.settings -and $script:Data.settings.optional_dependencies) {
+        $declared = @($script:Data.settings.optional_dependencies)
+    }
+    return @($declared | Where-Object { $_ -and $_.enabled -ne $false })
+}
+
+function Start-OptionalDependencies {
+    foreach ($dependency in @(Get-OptionalDependencies)) {
+        $arguments = @()
+        if ($dependency.sudo -ne $false) {
+            # -n: never block on a sudo password prompt. Without passwordless
+            # sudo the start fails immediately and is reported as skipped.
+            $arguments += @("sudo", "-n")
+        }
+        $arguments += @("systemctl", "start", [string]$dependency.unit)
+        Write-Host ("[deps]  {0,-14} runner={1} unit={2}" -f $dependency.name, $dependency.runner, $dependency.unit)
+        $exitCode = 1
+        try {
+            $exitCode = Invoke-Wsl ([string]$dependency.distro) $arguments
+        }
+        catch {
+            Write-Warning ("[deps] {0} skipped: {1}" -f $dependency.name, $_.Exception.Message)
+            continue
+        }
+        if ($exitCode -ne 0) {
+            Write-Warning ("[deps] {0} skipped (exit code {1}); the stack continues without it." -f $dependency.name, $exitCode)
+        }
+    }
+}
+
+function Get-OptionalDependencyState($Dependency) {
+    # systemctl is-active --quiet: 0 = running, 3 = stopped, anything else
+    # (no WSL, no systemd, access denied, ...) = unreachable.
+    $exitCode = -1
+    try {
+        $exitCode = Invoke-Wsl ([string]$Dependency.distro) @("systemctl", "is-active", "--quiet", [string]$Dependency.unit) -Quiet
+    }
+    catch {
+        return "unreachable"
+    }
+    if ($exitCode -eq 0) {
+        return "running"
+    }
+    if ($exitCode -eq 3) {
+        return "stopped"
+    }
+    return "unreachable"
+}
+
+function Show-OptionalDependencyStatus {
+    foreach ($dependency in @(Get-OptionalDependencies)) {
+        $state = Get-OptionalDependencyState $dependency
+        Write-Host ("{0,-16} {1,-9} runner={2} unit={3}" -f $dependency.name, $state, $dependency.runner, $dependency.unit)
+    }
+}
+
+function Start-All {
+    $script:State = @(Read-State)
+    $services = @(Get-Services)
+    $running = @($script:State | Where-Object {
+        ($_.runner -in @("conda", "process") -and (Test-ProcessRunning ([int]$_.pid))) -or
+        ($_.runner -eq "wsl-systemd" -and (Test-WslUnit ([string]$_.distro) ([string]$_.unit)))
+    })
+    if ($running.Count -gt 0) {
+        $healthyCount = @($services | Where-Object { Test-Healthy $_ }).Count
+        if ($healthyCount -eq $services.Count) {
+            $names = ($running | ForEach-Object { $_.name }) -join ", "
+            throw "Stack already has running services: $names. Use restart or stop first."
+        }
+        Write-Warning "Incomplete previous startup detected; cleaning recorded and listening processes before retry."
+        Stop-All
+    }
+
+    $script:State = @()
+    Write-State
+    [System.IO.File]::WriteAllText($script:CombinedLogFile, "", (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "Terminal mode: $script:EffectiveTerminalMode"
+    # Optional infrastructure first: failures are warnings only, and it is never
+    # rolled back with the stack.
+    Start-OptionalDependencies
+    $orders = @($services | ForEach-Object {
+        if ($null -eq $_.start_order) { 100 } else { [int]$_.start_order }
+    } | Sort-Object -Unique)
+
+    try {
+        foreach ($order in $orders) {
+            $group = @($services | Where-Object {
+                $itemOrder = if ($null -eq $_.start_order) { 100 } else { [int]$_.start_order }
+                $itemOrder -eq $order
+            })
+            foreach ($definition in $group) {
+                Start-One $definition
+            }
+            Wait-Group $group
+        }
+        Write-Host ""
+        Write-Host "All enabled registry services are running."
+    }
+    catch {
+        Write-Warning $_
+        Stop-All
+        throw
+    }
+}
+
+function Show-Status {
+    $script:State = @(Read-State)
+    foreach ($definition in @(Get-Services | Sort-Object start_order, name)) {
+        $entry = Get-StateEntry ([string]$definition.name)
+        if (-not $entry) {
+            $status = if ($definition.runner -eq "wsl-systemd" -and (Test-WslUnit ([string]$definition.distro) ([string]$definition.unit))) {
+                "external"
+            }
+            else {
+                "stopped"
+            }
+        }
+        elseif (Test-Healthy $definition) {
+            $status = "running"
+        }
+        elseif ($definition.runner -in @("conda", "process") -and (Test-ProcessRunning ([int]$entry.pid))) {
+            $status = "starting"
+        }
+        else {
+            $status = "failed"
+        }
+        Write-Host ("{0,-16} {1,-9} runner={2}" -f $definition.name, $status, $definition.runner)
+    }
+    Show-OptionalDependencyStatus
+}
+
+function Show-Logs {
+    if (-not (Test-Path $script:CombinedLogFile -PathType Leaf)) {
+        Write-Host "No matching logs found."
+        return
+    }
+    if ($Service) {
+        $marker = "[$Service]"
+        Get-Content $script:CombinedLogFile -Encoding UTF8 | Where-Object { $_.Contains($marker) } | Select-Object -Last 80
+    }
+    else {
+        Get-Content $script:CombinedLogFile -Encoding UTF8 -Tail 120
+    }
+}
+
+$script:Data = Read-Registry
+Initialize-Runtime
+
+switch ($Action) {
+    "start" { Start-All }
+    "stop" { Stop-All }
+    "restart" {
+        Stop-All
+        Start-All
+    }
+    "status" { Show-Status }
+    "logs" { Show-Logs }
+    "validate" {
+        $count = @(Get-Services).Count
+        $dependencyCount = @(Get-OptionalDependencies).Count
+        Write-Host "Registry is valid: $count enabled service(s), $dependencyCount optional dependency(ies)."
+    }
+}

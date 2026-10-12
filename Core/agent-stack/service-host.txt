@@ -1,0 +1,96 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name,
+    [Parameter(Mandatory = $true)]
+    [string]$WorkingDirectoryBase64,
+    [Parameter(Mandatory = $true)]
+    [string]$CommandBase64,
+    [Parameter(Mandatory = $true)]
+    [string]$AggregateLogBase64,
+    [Parameter(Mandatory = $true)]
+    [string]$PidFileBase64
+)
+
+$ErrorActionPreference = "Stop"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+
+function Decode([string]$Value) {
+    return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Value))
+}
+
+$workingDirectory = Decode $WorkingDirectoryBase64
+$commandLine = Decode $CommandBase64
+$aggregateLog = Decode $AggregateLogBase64
+$pidFile = Decode $PidFileBase64
+
+try {
+    $Host.UI.RawUI.WindowTitle = "Agent Stack - $Name"
+}
+catch {
+}
+
+function Write-AggregateLine([string]$Message) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+    $record = "[$timestamp][$Name] $Message" + [Environment]::NewLine
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try {
+            [System.IO.File]::AppendAllText($aggregateLog, $record, $utf8)
+            return
+        }
+        catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds 25
+        }
+    }
+}
+
+Set-Content -Path $pidFile -Value $PID -Encoding ASCII
+Write-AggregateLine "START $commandLine"
+
+$process = New-Object System.Diagnostics.Process
+$process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+$process.StartInfo.FileName = $env:ComSpec
+$process.StartInfo.Arguments = '/D /S /C "' + $commandLine + ' 2>&1"'
+$process.StartInfo.WorkingDirectory = $workingDirectory
+$process.StartInfo.UseShellExecute = $false
+# Keep the child attached to the service tab/window so Ctrl+C is delivered to
+# cmd.exe/Python as well as to this logging host. Hidden mode is controlled by
+# the outer PowerShell process, not by detaching the child console.
+$process.StartInfo.CreateNoWindow = $false
+$process.StartInfo.RedirectStandardOutput = $true
+$process.StartInfo.StandardOutputEncoding = $utf8
+
+try {
+    if (-not $process.Start()) {
+        throw "Failed to start service command."
+    }
+    while (-not $process.StandardOutput.EndOfStream) {
+        $line = $process.StandardOutput.ReadLine()
+        Write-Host $line
+        Write-AggregateLine $line
+    }
+    $process.WaitForExit()
+    $exitCode = $process.ExitCode
+    Write-AggregateLine "EXIT code=$exitCode"
+    exit $exitCode
+}
+catch {
+    Write-Host $_ -ForegroundColor Red
+    Write-AggregateLine ("HOST ERROR " + $_)
+    exit 1
+}
+finally {
+    try {
+        if ($process -and -not $process.HasExited) {
+            Write-AggregateLine "STOP requested; terminating child process tree pid=$($process.Id)"
+            & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null
+        }
+    }
+    catch {
+        Write-AggregateLine ("STOP cleanup error " + $_)
+    }
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+}

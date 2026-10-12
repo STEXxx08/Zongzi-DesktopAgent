@@ -1,0 +1,14 @@
+__pycache__
+/.tmp
+/.idea
+/.vscode
+/assets
+resources/config.yaml
+data/
+/memory/data
+/logs
+/.temp
+config.yaml
+/services/playground/proto/*_pb2*.py
+# 单机 MCP 服务配置（含地址与凭据，样例见 MCP/servers.example.json）
+/MCP/servers.json

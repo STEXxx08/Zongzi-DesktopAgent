@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "settings": {
+    "runtime_directory": "agent-stack/runtime",
+    "startup_timeout_seconds": 300,
+    "activation_timeout_seconds": 60,
+    "poll_interval_seconds": 1,
+    "combined_log_file": "combined.log",
+    "optional_dependencies": [
+      {
+        "name": "searxng",
+        "enabled": true,
+        "runner": "wsl-systemd",
+        "distro": "",
+        "unit": "searxng-local",
+        "sudo": true,
+        "note": "SearXNG meta search engine. Only web_search's search / news tools need it. Started best-effort before the Core services: if WSL is missing, the unit does not exist, or sudo fails, the launcher prints a warning and continues. Not stopped by 'stop' and not recorded in state.json. Set enabled=false when SearXNG runs on another machine or is managed by hand. distro=\"\" means the default WSL distribution."
+      }
+    ]
+  },
+  "services": [
+    {
+      "name": "asr",
+      "enabled": true,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "qwen3-asr",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "asr"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11001
+      }
+    },
+    {
+      "name": "mllm",
+      "enabled": true,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "llm_deepseek_online",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "mllm"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11000
+      }
+    },
+    {
+      "name": "tts",
+      "enabled": true,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "GPTSoVits",
+      "working_directory": "GPT-SoVITS",
+      "command": "python",
+      "arguments": ["-u", "zongzi_api.py", "-a", "127.0.0.1", "-p", "11002"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11002
+      }
+    },
+    {
+      "name": "llm-memory",
+      "enabled": true,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "llm_deepseek_online",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "llm", "-memory"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 10010
+      }
+    },
+    {
+      "name": "web_search",
+      "enabled": true,
+      "runner": "conda",
+      "start_order": 20,
+      "environment": "llm_deepseek_online",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "web_search"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11012
+      }
+    }
+  ]
+}

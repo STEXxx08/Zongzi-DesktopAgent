@@ -1,0 +1,12 @@
+# 实现：Core/llm/deepseek_online/model.py  —— 在线大模型（OpenAI 兼容接口）
+# 服务：llm / llm-memory（Core/agent-stack/registry.json）
+# 环境：llm_deepseek_online
+#
+# 安装：
+#   pip install -r Core/requirements-llm-deepseek-online.txt   （公共）
+#   pip install -r Core/llm/deepseek_online/requirements.txt
+#
+# 换厂商不用改代码：Core/config.yaml 的 LLM.config 里改 api_url / model_name 即可。
+
+openai==2.41.1          # Core/llm/deepseek_online/model.py:3
+httpx                   # openai SDK 的 HTTP 层

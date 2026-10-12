@@ -1,0 +1,48 @@
+# ============================================================================
+# ⚠️ 这个文件**不是**用来装的！
+#
+#   Core 的各个服务跑在**不同的 conda 环境**里，依赖互相冲突
+#   （torch / numpy / funasr / vllm 版本不一样），不存在一个环境能装下全部。
+#   所以依赖清单按 **环境 / 服务 / 实现** 拆开了，规则是：
+#
+#     公共部分（每个环境一份） + 每套实现一份（放在实现自己的目录下）
+#
+#   本文件里**没有任何包**，执行 `pip install -r Core/requirements.txt` 只会什么都不装。
+#
+# ── 环境 → 公共文件 → 各实现的依赖文件 ──────────────────────────────────────
+#
+#   [qwen3-asr]   服务 asr
+#     公共      Core/requirements-qwen3-asr.txt
+#     路线 A    Core/asr/sherpa_onnx/requirements.txt    sherpa-onnx（当前在用）
+#     路线 B    Core/asr/Qwen3ASR06B/requirements.txt    Qwen3-ASR（要 flash-attn，必须 3.12）
+#     路线 C    Core/asr/paraformer/requirements.txt     Paraformer（funasr）
+#
+#   [llm_deepseek_online]  服务 llm / llm-memory / mllm / web_search
+#     公共      Core/requirements-llm-deepseek-online.txt
+#     llm       Core/llm/deepseek_online/requirements.txt
+#     llm(本地) Core/llm/ollama/requirements.txt
+#     mllm      Core/mllm/requirements.txt
+#     web_search Core/web_search/requirements.txt
+#
+#   [GPTSoVits]   服务 tts
+#     公共      Core/requirements-gpt-sovits.txt
+#     实现①     Core/GPT-SoVITS/requirements.txt + environment.yaml（当前在用）
+#     实现②     Core/tts/gpt_sovits/requirements.txt
+#
+#   [按需]        可选服务
+#     索引      Core/requirements-optional.txt
+#     img_cap   Core/img_cap/blip/requirements.txt
+#     ocr       Core/ocr/paddle/requirements.txt
+#
+#   Bot 端同理（三个文件）：
+#     公共      Bot/requirements.txt
+#     界面      Bot/requirements-ui.txt
+#     可选      Bot/requirements-optional.txt
+#
+#   Python 版本要求、以及"哪些功能会限制 Python 版本"，见 README 2.5。
+#   完整实测快照（conda + pip 全量）见 环境快照/environment-<环境名>.yml。
+# ============================================================================
+
+# 每个环境都还要装共享协议包（不在 PyPI 上，源码在仓库里）：
+#   conda activate <环境名>
+#   pip install -e con-datapack-1.11

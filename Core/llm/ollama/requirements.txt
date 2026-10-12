@@ -1,0 +1,11 @@
+# 实现：Core/llm/ollama/model.py  —— 外接本机 Ollama（Windows 上唯一可用的本地模型路线）
+# 服务：llm（把 Core/config.yaml 的 LLM.id 改成 "ollama"）
+#
+# ⚠️ 它**不装在 llm_deepseek_online 环境里**（那个环境只跑在线 API）。
+#    要用这条就单独建环境，或者确认你愿意让在线依赖和它共存：
+#      pip install -r Core/requirements-llm-deepseek-online.txt
+#      pip install -r Core/llm/ollama/requirements.txt
+#
+# Ollama 本体是独立进程（默认 http://localhost:11434），不是 pip 包。
+
+requests                # Core/llm/ollama/model.py:9

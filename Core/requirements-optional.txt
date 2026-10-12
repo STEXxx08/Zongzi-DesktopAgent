@@ -1,0 +1,15 @@
+# ============================================================================
+# 可选服务 —— 都不参与默认部署（Core/agent-stack/registry.json 里没有登记）
+# 想用时再装，装到哪个环境由你自己决定。
+#
+#   服务      实现                      依赖文件
+#   ---------------------------------------------------------------------------
+#   img_cap   Core/img_cap/blip/         Core/img_cap/blip/requirements.txt
+#   ocr       Core/ocr/paddle/           Core/ocr/paddle/requirements.txt
+#
+#   LLM 的几条可选路线（ollama / 本地大模型）见：
+#     Core/llm/ollama/requirements.txt
+#     Core/requirements-llm-deepseek-online.txt 头部的说明
+# ============================================================================
+
+# 本文件本身不含任何包。

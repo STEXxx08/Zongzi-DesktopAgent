@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "enabled": false,
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8931/mcp",
+      "protocol_version": "2025-11-25",
+      "headers_env": {},
+      "allowed_tools": ["browser_navigate", "browser_evaluate"],
+      "allow_resource_read": false
+    },
+    "local-research": {
+      "enabled": false,
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "protocol_version": "2025-11-25",
+      "headers_env": {},
+      "allowed_tools": ["search"],
+      "allow_resource_read": true
+    }
+  }
+}

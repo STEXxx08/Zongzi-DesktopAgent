@@ -1,0 +1,30 @@
+# ============================================================================
+# conda 环境：GPTSoVits
+# Python：3.9 ~ 3.10（被 GPT-SoVITS 自己锁定的 numpy 1.23.4 + numba 0.56.4 卡在上限）
+# 需要 GPU（CUDA 12.8 / cu128）
+#
+# ── 这个环境里 "tts" 有两种跑法，依赖文件分开 ────────────────────────────────
+#   （Core/agent-stack/registry.json 现在用的是第 ① 种）
+#
+#   ① GPT-SoVITS 自己的 FastAPI 服务（默认 127.0.0.1:11002）
+#        入口：Core/GPT-SoVITS/zongzi_api.py（工作目录 = GPT-SoVITS）
+#        依赖：Core/GPT-SoVITS/requirements.txt + Core/GPT-SoVITS/environment.yaml
+#              ＋ 本文件（公共部分）
+#
+#   ② Core 侧的 tts 服务（starter.py tts，走 HTTP 转发）
+#        实现：Core/tts/gpt_sovits/model.py
+#        依赖：Core/tts/gpt_sovits/requirements.txt ＋ 本文件（公共部分）
+#
+# ── 系统依赖（不是 pip 包）───────────────────────────────────────────────────
+#   jieba_fast / pyopenjtalk：PyPI 上**只有源码包**，没有 Windows 轮子，必须本地编译
+#   （需要 MSVC 生成工具）。它们是 GPT-SoVITS 自己的依赖，见 README 2.5 特殊情况 3。
+#
+# ⚠️ 完整实测快照见 环境快照/environment-GPTSoVits.yml
+# ============================================================================
+
+# ---- 公共 ----
+pydantic>=2.5,<3
+loguru
+PyYAML
+typing-extensions
+requests                 # Core/common/decorator.py:4

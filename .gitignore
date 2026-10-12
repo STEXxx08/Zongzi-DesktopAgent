@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Zongzi-DesktopAgent —— 公开仓库忽略规则
+# 两条原则：① 隐私与运行期数据一律不入库；② 模型权重由使用者按 README §3.8 自行下载。
+# 子项目规则见 Bot/.gitignore、Core/.gitignore、con-datapack-1.11/.gitignore。
+# ---------------------------------------------------------------------------
+
+# ---- 隐私与运行期数据（绝不上传）----
+Bot/config.yaml
+Core/config.yaml
+Bot/resources/config.yaml
+/Bot/memory/data/
+/Bot/logs/
+/Bot/.temp/
+/Core/.temp/
+/.temp/
+/Bot/Sandbox/
+/Core/agent-stack/runtime/
+*.log
+
+# ---- 本机资源与手工下载的离线包 ----
+/Resources/
+*.whl
+*.whl.*
+
+# ---- 本地模型权重（README §3.8：全部自行下载）----
+# Bot/models 下只保留意图路由 tokenizer 两个文件，onnx 权重需自行下载
+/Bot/models/*.onnx
+!/Bot/models/bge-small-zh-v1.5-onnx/
+/Bot/models/bge-small-zh-v1.5-onnx/*
+!/Bot/models/bge-small-zh-v1.5-onnx/tokenizer.json
+!/Bot/models/bge-small-zh-v1.5-onnx/tokenizer_config.json
+/Bot/checkpoints/
+# ---- GPT-SoVITS：仓库只带代码，权重与文本前端自行下载 ----
+Core/GPT-SoVITS/GPT_SoVITS/pretrained_models/
+Core/GPT-SoVITS/GPT_SoVITS/text/G2PWModel/
+Core/GPT-SoVITS/GPT_SoVITS/text/ja_userdic/
+Core/GPT-SoVITS/GPT_SoVITS/text/cmudict*.rep
+Core/GPT-SoVITS/GPT_SoVITS/text/*.pickle
+Core/GPT-SoVITS/tools/uvr5/uvr5_weights/
+
+# ---- 第三方本地安装（不入库）----
+/Bot/napcat/
+
+# ---- 单机运行配置（样例 servers.example.json 随仓库发布）----
+Bot/MCP/servers.json
+
+# ---- 缓存与工具目录 ----
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+*.egg-info/
+/.idea/
+/.vscode/

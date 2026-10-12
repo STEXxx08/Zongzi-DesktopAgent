@@ -1,0 +1,12 @@
+# 服务：img_cap（图像描述）—— 实现：Core/img_cap/blip/model.py
+# 可选服务：Core/agent-stack/registry.json 里**没有登记**，默认不部署
+#
+# 安装到哪个环境由你自己定（它自带 torch，跟 ASR 环境放一起也行）：
+#   pip install -r Core/img_cap/blip/requirements.txt
+#
+# ⚠️ 同目录的 pyproject.toml 是早期 uv 项目的声明，版本已过期（torch 2.3.1 等），
+#    以本文件为准。
+
+torch                   # Core/img_cap/blip/model.py:8
+transformers            # Core/img_cap/blip/model.py:10
+pillow                  # Core/img_cap/blip/model.py:9

@@ -1,0 +1,4 @@
+# 桌宠界面（PySide6）—— 纯控制台模式不需要它
+#   service.desktop_shell.enable=false 时 Bot 可以完全不装这个文件
+# 份量定位：本文件 = Bot/requirements.txt（公共）之外的"可选界面"那一份
+PySide6>=6.6,<7

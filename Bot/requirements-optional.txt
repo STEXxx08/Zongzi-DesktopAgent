@@ -1,0 +1,21 @@
+# ============================================================================
+# Bot 的可选功能依赖 —— 不装也能启动，只是对应功能会降级
+# （必需的是 Bot/requirements.txt；桌宠界面是 Bot/requirements-ui.txt）
+#
+# 安装：pip install -r Bot/requirements-optional.txt
+# ============================================================================
+
+# ---- TurnSense 的音频前端（pipeline/asr/turnsense.py:36,62）----
+# 缺了它：只能跑"文本 ONNX"端点检测，**音频 ONNX 模型用不了**，
+#         日志会出现 "TurnSense audio ONNX dependencies unavailable: missing kaldi_native_fbank"
+kaldi-native-fbank==1.22.3
+
+# ---- 麦克风降噪（pipeline/asr/denoiser.py:5，try/except 导入）----
+# 缺了它：启动时日志报 "ClearVoice not installed, denoise feature will be disabled"，
+#         降噪自动关闭，其余流程不受影响。它本身会连带装 torch。
+# clearvoice
+
+# ---- TurnSense 的 transformers 后端（pipeline/asr/turnsense.py:398，非默认路径）----
+# 默认走 onnx；这条路径要额外装 torch + transformers（Bot 一般不需要 GPU）
+# torch
+# transformers

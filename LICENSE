@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 STEXxx08
+Copyright (c) 2026 STEXxx
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,29 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+本仓库：Zongzi（Zongzi-DesktopAgent）
+====================================
+
+主许可证：MIT，Copyright (c) 2026 STEXxx（如上文）。
+
+内嵌第三方组件（各自保留其自有许可文件）
+----------------------------------------
+
+  Core/GPT-SoVITS/                GPT-SoVITS，MIT，Copyright (c) 2024 RVC-Boss
+                                  见 Core/GPT-SoVITS/LICENSE
+
+早期骨架的版权声明（MIT 要求保留，均保留在对应目录内）
+--------------------------------------------------------
+
+  Bot/NOTICE                      事件骨架与管线协议，来自 ZerolanLiveRobot
+                                  Copyright (c) 2024 AkagawaTsurunaki
+  Core/LICENSE                    模型服务层骨架，来自 ZerolanCore
+                                  Copyright (c) 2024 AkagawaTsurunaki
+  con-datapack-1.11/LICENSE       数据协议包骨架，来自 ZerolanData
+                                  Copyright (c) 2024 AkagawaTsurunaki
+
+以上原始声明均按 MIT 条款保留，与本项目新增代码同为 MIT 发布。
+部分源码文件头部保留了原作者的 `Author:` 注释，同属 MIT 署名要求。

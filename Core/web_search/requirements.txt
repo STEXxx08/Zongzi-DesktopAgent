@@ -1,0 +1,14 @@
+# 服务：web_search —— 实现：Core/web_search/model.py（SearXNG）+ 各子模型
+# 环境：llm_deepseek_online
+#
+# 安装：
+#   pip install -r Core/requirements-llm-deepseek-online.txt   （公共）
+#   pip install -r Core/web_search/requirements.txt
+#
+# ⚠️ 真正干活的 **SearXNG 是独立进程/容器**（默认 http://127.0.0.1:8080/search），
+#    不是 pip 包，需要自己部署并在它那边开启 JSON 输出（见 README 3.5）。
+#    子模型（github / news / steam / weather / exchange_rate）都是直接打各自的
+#    HTTP 接口，不需要额外依赖。
+
+requests                # Core/web_search/*/model.py 全用它
+pydantic                # Core/web_search/app.py:3（请求校验）

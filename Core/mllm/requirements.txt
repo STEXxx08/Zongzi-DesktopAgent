@@ -1,0 +1,11 @@
+# 服务：mllm（多模态）—— 实现：Core/mllm/model.py
+# 环境：llm_deepseek_online
+#
+# 安装：
+#   pip install -r Core/requirements-llm-deepseek-online.txt   （公共）
+#   pip install -r Core/mllm/requirements.txt
+#
+# 换模型不用改代码：Core/config.yaml 的 MLLM.config 里改 api_url / model_name。
+
+dashscope==1.25.24      # Core/mllm/model.py:5,6（阿里云百炼）
+# websocket-client 是 dashscope 的依赖，会随它自动装上

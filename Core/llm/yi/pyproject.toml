@@ -1,0 +1,21 @@
+[project]
+name = "yi"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate==0.33.0",
+    "dataclasses-json==0.6.7",
+    "flask==3.0.3",
+    "loguru==0.7.2",
+    "sentencepiece==0.2.0",
+    "torch==2.3.1",
+    "transformers==4.43.3",
+    "condata",
+]
+
+[tool.uv.sources]
+condata = { path = "../../con-datapack-1.11", editable = true }
+
+[tool.setuptools]
+packages = []

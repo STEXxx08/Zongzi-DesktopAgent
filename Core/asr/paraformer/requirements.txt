@@ -1,0 +1,15 @@
+# 路线 C：Paraformer（funasr）
+# 实现：Core/asr/paraformer/model.py:7
+# 需要 GPU；torch 同样要 cu128 版，且**要先装**：
+#     pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+#
+# 安装：
+#   pip install -r Core/requirements-qwen3-asr.txt   （公共部分）
+#   pip install -r Core/asr/paraformer/requirements.txt
+#
+# ⚠️ 本机 qwen3-asr 环境**没有装 funasr**，这条路线没有实机验证过。
+#    版本与同目录的 pyproject.toml 保持一致；那份 pyproject 里的 torch 2.3.1 等是早期
+#    uv 项目声明、已过期，**以本文件为准**（torch 用第 2 段那条 cu128 命令装）。
+
+funasr==1.1.4
+soundfile==0.14.0        # Core/utils/audio_util.py:20（读音频）

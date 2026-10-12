@@ -1,0 +1,228 @@
+# ############################################################################
+# 脱敏样例配置（Core 侧）
+# 由作者实际运行的 Core/config.yaml 导出，只去掉个人化取值：
+#   - MLLM.config.<id>.api_url 里的私有接入点已替换为占位符
+# 用法：复制为同目录的 config.yaml 后按需修改（重点是各服务段的 id 字段）。
+# ############################################################################
+
+# Modify your config for models you want to use.
+
+ASR:
+  id: "Sherpa-ONNX-Streaming-Zipformer-ZH-INT8" # The model you want to use
+  host: "0.0.0.0" # Host of the API service you want to start
+  port: 11001 # Port of the API service you want to start  
+  config:
+    iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1:
+      model_path: "iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1" # Directory of the model
+      chunk_size: [ 0, 10, 5 ]  # [0, 10, 5] 600ms, [0, 8, 4] 480ms
+      encoder_chunk_look_back: 4  # Number of chunks to lookback for encoder self-attention
+      decoder_chunk_look_back: 1  # Number of encoder chunks to lookback for decoder cross-attention
+      version: "v2.0.4" # Paraformer version
+      chunk_stride: 9600  # chunk_size[1] * 960
+    Qwen3-ASR-0.6B:
+      model_path: "./asr/Qwen3ASR06B" # Directory of the model
+      device: "cuda" # Device to run the model
+      dtype: "bfloat16" # Data type (bfloat16/float16)
+      use_flash_attn: true # Whether to use flash-attn (requires installation)
+      max_new_tokens: 256 # Maximum number of tokens to generate
+    Sherpa-ONNX-Streaming-Zipformer-ZH-INT8:
+      model_dir: "models/sherpa-onnx-streaming-zipformer-zh-xlarge-int8-2025-06-30"
+      encoder: "encoder.int8.onnx"
+      decoder: "decoder.onnx"
+      joiner: "joiner.int8.onnx"
+      tokens: "tokens.txt"
+      provider: "cuda"
+      num_threads: 1
+      sample_rate: 16000
+      feature_dim: 80
+      decoding_method: "greedy_search"
+      enable_endpoint_detection: false
+      # Required right-context padding before input_finished(), otherwise the
+      # streaming transducer can omit sentence-final characters.
+      tail_padding_seconds: 0.66
+
+LLM:
+  id: "deepseek_online/DeepSeek-v4-flash" # The model you want to use
+  host: "0.0.0.0" # Host of the API service you want to start
+  port: 11000 # Port of the API service you want to start
+  config:
+    THUDM/glm-4-9b-chat-hf:
+      model_path: "THUDM/glm-4-9b-chat-hf"
+      device: "cuda"
+      max_length: 5000
+    THUDM/chatglm3-6b:
+      model_path: "THUDM/chatglm3-6b" # Directory of the model
+      quantize: null  # null | 4 | 8
+      device: "cuda" # Device to run the model
+    Qwen/Qwen-7B-Chat:
+      model_path: "Qwen/Qwen-7B-Chat" # Directory of the model
+      quantize: null  # null | 4 | 8
+      device: "cuda" # Device to run the model
+      precise: null # "bf16" | "fp16"
+    augmxnt/shisa-7b-v1:
+      model_path: "augmxnt/shisa-7b-v1" # Directory of the model
+      device: "cuda" # Device to run the model
+    01-ai/Yi-6B-Chat:
+      model_path: "01-ai/Yi-6B-Chat" # Directory of the model
+      device: "cuda" # Device to run the model
+    deepseek-ai/DeepSeek-R1-Distill-Llama-8B:
+      model_path: "deepseek-ai/DeepSeek-R1-Distill-Llama-8B" # Directory of the model
+      max_length: 23000
+      tensor_parallel_size: 1
+    deepseek-ai/DeepSeek-R1-Distill-Qwen-14B:
+      model_path: "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B" # Directory of the model
+      max_length: 23000
+      tensor_parallel_size: 2
+    deepseek_online/DeepSeek-v4-flash:
+      api_url: "https://api.deepseek.com"
+      model_name: "deepseek-v4-pro"
+      temperature: 0.6
+      top_p: 0.95
+      timeout: 90
+    ollama:
+      api_url: "http://localhost:11434"  # Ollama API URL
+      model_name: "gemma3:1b"  # Ollama model name (e.g., llama2, mistral, qwen, deepseek-r1, etc.)
+      temperature: 0.7
+      top_p: 0.95
+      timeout: 60
+
+MLLM:
+  id: "mllm_online/qwen"
+  host: "0.0.0.0"
+  port: 11000
+  config:
+    mllm_online/qwen:
+      api_url: "https://<你的-MLLM-服务地址>/api/v1"
+      model_name: "qwen3.8-omni-flash"
+      temperature: 0.7
+      max_tokens: 4096
+      top_p: 0.95
+      enable_thinking: false
+      thinking_budget: 512
+      repetition_penalty: 1.0
+      presence_penalty: 2.0
+      timeout: 60
+
+ImgCap:
+  id: "Salesforce/blip-image-captioning-large" # The model you want to use
+  host: "0.0.0.0" # Host of the API service you want to start
+  port: 11003 # Port of the API service you want to start  
+  config:
+    Salesforce/blip-image-captioning-large:
+      model_path: "Salesforce/blip-image-captioning-large" # Directory of the model
+      device: "cuda" # Device to run the model
+
+OCR:
+  id: "paddlepaddle/PaddleOCR" # The model you want to use
+  host: "0.0.0.0" # Host of the API service you want to start
+  port: 11004 # Port of the API service you want to start
+  config:
+    paddlepaddle/PaddleOCR:
+      model_path: "paddlepaddle/PaddleOCR" # Directory of the model
+      lang: "ch" # Language ["ch", "en", "fr", "german", "korean", "japan"]
+
+TTS:
+  id: "GPT-SoVITS" # The model you want to use
+  host: "0.0.0.0" # Host of the API service you want to start
+  port: 11002 # Port of the API service you want to start
+  config:
+    GPT-SoVITS:
+    # Under developing for quick installing
+
+WebSearch:
+  host: "0.0.0.0"
+  port: 11012
+  config:
+    # SearXNG runs as an independent process/container. JSON output must be enabled there.
+    endpoint: "http://127.0.0.1:8080/search"
+    timeout_seconds: 6.0
+    max_results: 5
+    language: "zh-CN"
+    categories: ["general"]
+    # Keep the engine list short to reduce tail latency. Adjust to engines reachable from the Core host.
+    engines: ["bing"]
+    safe_search: 1 # 0: off, 1: moderate, 2: strict
+    time_range: null # null, day, month, or year
+    page_no: 1
+    verify_ssl: true
+    max_concurrency: 1
+    cache_ttl_seconds: 300
+    max_cache_entries: 128
+  weather:
+    enable: true
+    provider: "open_meteo"
+    geocoding_endpoint: "https://geocoding-api.open-meteo.com/v1/search"
+    forecast_endpoint: "https://api.open-meteo.com/v1/forecast"
+    # Required when the user says only "看天气". Set this to the user's usual city.
+    default_location: ""
+    language: "zh"
+    forecast_days: 3
+    timeout_seconds: 6.0
+    cache_ttl_seconds: 600
+    max_cache_entries: 64
+  news:
+    enable: true
+    endpoint: "http://127.0.0.1:8080/search"
+    default_query: "今日新闻"
+    language: "zh-CN"
+    engines: ["bing"]
+    # Use Bing Web with a news-focused query; the dedicated Bing News adapter
+    # is not enabled in the default SearXNG configuration.
+    categories: ["general"]
+    # Bing may be skipped completely when a time range is supplied but the
+    # active SearXNG adapter does not support it.
+    time_range: null
+    max_results: 5
+    timeout_seconds: 6.0
+    cache_ttl_seconds: 300
+    # Optional RSS/Atom sources are merged round-robin with SearXNG results.
+    # Enable only sources reachable from the Core host.
+    rss_sources:
+      - name: "中国新闻网-即时新闻"
+        url: "https://www.chinanews.com.cn/rss/scroll-news.xml"
+        enabled: true
+        max_results: 5
+      - name: "IT之家"
+        url: "https://www.ithome.com/rss/"
+        enabled: true
+        max_results: 5
+      - name: "BBC中文"
+        url: "https://www.bbc.co.uk/zhongwen/trad/index.xml"
+        enabled: false
+        max_results: 5
+      - name: "Hacker News"
+        url: "https://news.ycombinator.com/rss"
+        enabled: false
+        max_results: 5
+      - name: "NASA"
+        url: "https://www.nasa.gov/rss/dyn/breaking_news.rss"
+        enabled: false
+        max_results: 5
+  steam:
+    enable: true
+    news_endpoint: "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
+    store_search_endpoint: "https://store.steampowered.com/api/storesearch/"
+    language: "schinese"
+    country: "CN"
+    count: 5
+    max_content_length: 800
+    timeout_seconds: 8.0
+    cache_ttl_seconds: 600
+    # Optional mappings avoid the extra name-to-AppID lookup.
+    app_aliases: {}
+  github:
+    enable: true
+    api_base: "https://api.github.com"
+    token_env: "GITHUB_TOKEN"
+    api_version: "2026-03-10"
+    max_results: 5
+    timeout_seconds: 8.0
+    cache_ttl_seconds: 600
+    repository_aliases: {}
+  exchange_rate:
+    enable: true
+    endpoint: "https://api.frankfurter.dev/v2/rate"
+    default_base: "USD"
+    default_quote: "CNY"
+    timeout_seconds: 6.0
+    cache_ttl_seconds: 3600
