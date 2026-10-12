@@ -148,7 +148,7 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 
 **显卡驱动的下限**：CUDA 12.8 运行时要求驱动 **≥ 570**（Windows）。用 `nvidia-smi` 看右上角 `CUDA Version`，低于 12.8 就先升驱动，否则连 CUDA 初始化都会失败。
 
-**显存参考**：作者机器 8 GB 显存同时跑 ASR（sherpa-onnx int8）+ TTS（GPT-SoVITS）+ MLLM，占用约 4.9 GB。全部本地模型时建议 **≥ 8 GB 显存**；只想跑 ASR+TTS 的话 6 GB 也比较紧张但可试。
+**显存参考**：作者机器 8 GB 显存同时跑 ASR（sherpa-onnx int8）+ TTS（GPT-SoVITS）+ 云端MLLM，占用约 1.9 GB。全部本地模型时建议 **≥ 8 GB 显存**；只想跑 ASR+TTS 的话Linux 4 GB 够用。
 
 ### 2.3 `flash-attn` 是硬依赖，且必须与 torch 精确对齐
 
@@ -435,6 +435,7 @@ python agent_stack.py logs --service asr
 ```
 
 语义与 PowerShell 版一致（同样的 `start_order` 并行、健康检查、`state.json`、合并日志、失败回滚、SearXNG 尽力启动）。差异只在平台细节：Linux 上 conda 走 `conda run --no-capture-output`，服务在后台运行、输出进合并日志（没有"每个服务一个窗口"的概念），`--hidden` 仅对 Windows 有意义。详见 `Core/agent-stack/README.md`。
+
 
 默认按一下 `f8` 开始说话、说完再按一下送进 ASR；也可以直接在界面里打字。
 
