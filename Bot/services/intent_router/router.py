@@ -41,105 +41,37 @@ class RouteDecision:
 
 IntentMatch = RouteDecision
 
-# ONNX 允许把权重放在模型文件外的 *.onnx_data 里（optimum 导出默认这么做）。
-# 文件名字符串在 protobuf 里是裸存的，因此可以直接从字节里扫出来。
-_EXTERNAL_DATA_PATTERN = re.compile(rb"[\w.\-]{1,128}\.onnx_data")
-
-
-def resolve_model_dir(model_path: str) -> Path:
-    """解析模型目录：相对路径先按启动目录找，找不到再按 Bot 项目根找。"""
-    directory = Path(model_path)
-    if directory.is_absolute() or directory.exists():
-        return directory
-    candidate = Path(__file__).resolve().parents[2] / directory
-    return candidate if candidate.exists() else directory
-
-
-def missing_external_data(model_file: Path) -> list[str]:
-    """列出模型引用、但同目录下并不存在的 *.onnx_data 外置权重文件。
-
-    onnxruntime 找不到外置权重时抛出的并不是"文件不存在"，而是拼装错误信息
-    时按 UTF-8 解码非 ASCII 路径失败产生的 UnicodeDecodeError，真实原因被完全
-    掩盖。所以这里先自己检查一遍，把缺文件的情况翻译成人话。
-    """
-    try:
-        payload = model_file.read_bytes()
-    except OSError:
-        return []
-    names = {
-        match.decode("ascii", "ignore")
-        for match in _EXTERNAL_DATA_PATTERN.findall(payload)
-    }
-    return sorted(name for name in names if not (model_file.parent / name).exists())
+# 模型路径解析、外置权重检查与 ONNX session 都移到了共享模块：
+# 意图路由与记忆检索必须共用同一个 session，不能各加载一份（方案 §12.3）。
+# 这里保留同名再导出，历史上的导入路径（含单测）继续可用。
+from services.embedding.bge_onnx import (  # noqa: E402
+    EmbedderSpec,
+    get_shared_embedder,
+    missing_external_data,
+    resolve_model_dir,
+)
 
 
 class _ONNXBGEEmbedder:
+    """意图路由视角的 BGE 适配器：委托共享模块，公开行为不变。"""
+
     def __init__(self, config: IntentRouterConfig):
-        try:
-            import onnxruntime as ort
-            from transformers import AutoTokenizer
-        except ImportError as exc:
-            raise RuntimeError(
-                "BGE intent router requires onnxruntime and transformers"
-            ) from exc
-
-        model_dir = resolve_model_dir(config.model_path)
-        model_file = model_dir / config.onnx_model
-        if not model_file.exists():
-            raise FileNotFoundError(f"BGE ONNX model not found: {model_file}")
-        absent_weights = missing_external_data(model_file)
-        if absent_weights:
-            raise FileNotFoundError(
-                f"BGE ONNX model {model_file.name} needs external weight file(s) "
-                f"{', '.join(absent_weights)} next to it in {model_file.parent}; only "
-                f"{model_file.name} was downloaded (see services/intent_router/README.md)"
-            )
-
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = config.intra_op_threads
-        options.inter_op_num_threads = config.inter_op_threads
-        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        try:
-            self.session = ort.InferenceSession(
-                str(model_file),
-                sess_options=options,
-                providers=config.providers,
-            )
-        except UnicodeDecodeError as exc:
-            # onnxruntime 在 Windows 上拼装错误信息时按 UTF-8 解码 ANSI 路径，
-            # 只要模型路径含中文，真实错误就会变成这个解码异常。
-            raise RuntimeError(
-                f"onnxruntime could not load {model_file}; the underlying error is masked by "
-                f"a path-encoding bug in onnxruntime (non-ASCII path or unreadable model "
-                f"directory): {exc}"
-            ) from exc
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            str(model_dir), local_files_only=True
-        )
+        self.config = config
         self.max_length = config.max_length
-        self.input_names = {item.name for item in self.session.get_inputs()}
+        self._embedder = get_shared_embedder(
+            EmbedderSpec.from_config(config), max_length=config.max_length
+        )
 
     def __call__(self, texts: list[str]) -> np.ndarray:
-        encoded = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="np",
-        )
-        inputs = {
-            name: np.asarray(value, dtype=np.int64)
-            for name, value in encoded.items()
-            if name in self.input_names
-        }
-        output = self.session.run(None, inputs)[0]
-        embeddings = output[:, 0, :] if output.ndim == 3 else output
-        return self._normalize(np.asarray(embeddings, dtype=np.float32))
+        return self._embedder(texts, max_length=self.max_length)
 
-    @staticmethod
-    def _normalize(values: np.ndarray) -> np.ndarray:
-        norms = np.linalg.norm(values, axis=1, keepdims=True)
-        return values / np.maximum(norms, 1e-12)
+    @property
+    def session(self):
+        return self._embedder.session
+
+    @property
+    def tokenizer(self):
+        return self._embedder.tokenizer
 
 
 class BGEIntentRouter:

@@ -1,21 +1,23 @@
-# Zongzi
+# Zongzi-DesktopAgent
 
-`Zongzi` ｜ 仓库名 `Zongzi-DesktopAgent`
+[![Bilibili](https://img.shields.io/badge/Bilibili-%E7%B2%BD%E5%AD%90-00A1D6?logo=bilibili&logoColor=white)](https://space.bilibili.com/35778513)
 
-> 一个跑在自己电脑上的 AI 桌面伙伴：听得见、会说话、记得住你、能动手用工具。
-> 名字叫「粽子」——有猫耳和猫尾的猫娘？
+**一个跑在自己电脑上的 AI 桌面伙伴：听得见、会说话、记得住你、能动手用工具。**
+**名字叫「粽子」——有猫耳和猫尾的猫娘？**
 
-> 当然实际上不只是这样，本项目实质上是：
-> **一个高自由度的桌面 Agent 集成框架。**
-> 把 ASR、LLM / MLLM、TTS、记忆、工具、屏幕识别这些组件拼成一个长期驻留在你电脑上的智能体 ——
-> 听得到你说话，看得出你屏幕上在发生什么，记得住你们聊过的内容，还能自己调工具去干活。
-> 可以陪你玩游戏、看视频、处理日常杂事。
->
-> - **组件全可替换**：每个环节都能独立换实现，本地模型与云端 API 随意混搭 —— 换一个 `id` / `model_id` 就换一家
-> - **桌面原生**：屏幕理解、桌面音频感知、桌宠界面与字幕、全局热键
-> - **Agent 能力**：工具调用（同轮多轮）、Skills、MCP、文件沙箱、联网检索
-> - **自研记忆系统**：分层长期记忆 + 定期快照 + 合并压缩去重，记忆可单独指定模型（详见[记忆系统](#记忆系统自研)）
-> - **本地优先**：整条链路都能跑在本机（含离线模型），也可以只跑一个客户端 + 云端 API
+当然实际上不只是这样，本项目实质上是：
+
+**一个高自由度的桌面 Agent 集成框架。**
+
+**把 ASR、LLM / MLLM、TTS、记忆、工具、屏幕识别这些组件拼成一个长期驻留在你电脑上的智能体 ——
+听得到你说话，看得出你屏幕上在发生什么，记得住你们聊过的内容，还能自己调工具去干活。**
+可以陪你玩游戏、看视频、处理日常杂事。
+
+- **组件全可替换**：每个环节都能独立换实现，本地模型与云端 API 随意混搭 —— 换一个 `id` / `model_id` 就换一家
+- **桌面原生**：屏幕理解、桌面音频感知、桌宠界面与字幕、全局热键
+- **Agent 能力**：工具调用（同轮多轮）、Skills、MCP、文件沙箱、联网检索
+- **自研记忆系统**：分层长期记忆 + 定期快照 + 合并压缩去重，记忆可单独指定模型（详见[记忆系统](#记忆系统自研)）
+- **本地优先**：整条链路都能跑在本机（含离线模型），也可以只跑一个客户端 + 云端 API
 
 「粽子」是自带的人设示例，把角色配置换掉，它就是你自己的 Agent。
 
@@ -30,16 +32,18 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 > 上游均为 MIT 许可，版权声明见各自目录。详见文末 [License 与来源](#license-与来源)。
 > 感谢AkagawaTsurunaki提供的开源代码，目前本项目基本没有复用初始代码，仅保留了HTTP传输架构。
 
-> 后续所有提到的权重等不随仓库上传的大文件，如有需要可以来找我拿
-> 本release目前只是一个早期架构版本，不了解环境部署的用户可能无法部署该项目，我会持续更新，最终目标是在架构基础上做出一份可能即装即用的应用框架~
-> 本项目的公开版提取和README内容依赖AI完成，可能有逻辑遗漏，也可能在不同环境下出现各类问题，欢迎在项目下提出issue，我看到会尽快回复或修复~
-> 本项目纯凭兴趣，非常欢迎大佬提出改进建议。
-> 如果使用了本项目，或者因为本项目收到了一点点启发，就给个star呗，这对我很重要~
+- 想先看看它长什么样、能不能跑？→ **[快速开始](#快速开始先跑起来)**：不下载任何模型、不需要显卡，一条最短路线上手
+- 想全套本地跑（本机 ASR / TTS / 多模态）→ **[部署教程](#部署教程)**：需要一块 NVIDIA 显卡与若干 GB 模型权重
+- 权重等不随仓库上传的大文件，如有需要可以来找我拿（见文末 [Contact](#contact)）
+- 本项目的公开版提取与 README 由 AI 协助完成，可能有逻辑遗漏，也可能在不同环境下出现各类问题，欢迎在项目下提出 issue，我看到会尽快回复或修复~
+- 本项目纯凭兴趣，非常欢迎大佬提出改进建议。
+- 如果使用了本项目，或者因为本项目收到了一点点启发，就给个 star 呗，这对我很重要~
 
 ---
 
 ## 目录
 
+- [快速开始（先跑起来）](#快速开始先跑起来)
 - [特性](#特性)
 - [记忆系统](#记忆系统自研)
 - [环境兼容性（装之前先看）](#环境兼容性装之前先看)
@@ -49,6 +53,100 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 - [开发](#开发)
 - [已知限制](#已知限制)
 - [License 与来源](#license-与来源)
+- [Contact](#contact)
+
+---
+
+## 快速开始（先跑起来）
+
+> **这一节的目标**：用最少的步骤让它先在你电脑上**打字聊天** —— 不下载模型、不需要显卡、不需要启动 Core。
+> 语音、联网、屏幕理解之后再按需加上去，完整说明见[部署教程](#部署教程)。
+
+### 第 0 步：装好两个前置工具
+
+| 工具 | 用来做什么 | 去哪装 |
+|---|---|---|
+| **Miniconda** | 本项目所有环境都用 conda 管理 | [Miniconda 下载页](https://docs.conda.io/en/latest/miniconda.html)（装完从开始菜单打开 **Anaconda Prompt**） |
+| **Git** | 拉取代码 | [Git for Windows](https://git-scm.com/download/win) |
+
+**不需要单独装 Python**（下一步用 conda 建一个 3.11 环境），也**不需要显卡**。
+
+### 第 1 步：拉代码、建环境
+
+```powershell
+git clone <你的仓库地址> Zongzi-DesktopAgent
+cd Zongzi-DesktopAgent
+
+conda create -n MyAI python=3.11 -y
+conda activate MyAI
+
+pip install -r Bot/requirements.txt
+pip install -r Bot/requirements-ui.txt          # 想要桌宠界面就装；只跑控制台可跳过
+pip install -r Bot/requirements-optional.txt
+pip install -e con-datapack-1.11                # 共享协议包，不在 PyPI 上，必须从源码装
+```
+
+> ⚠️ 如果 `pip install` 卡在 `webrtcvad` 上编译报错（没装 MSVC 生成工具的机器很常见），改用现成轮子：
+> `pip install webrtcvad-wheels`。它提供同名的 `webrtcvad` 模块，**即使不用语音也要能 import**（麦克风模块的顶层依赖）。
+
+### 第 2 步：生成配置文件
+
+```powershell
+cd Bot
+python main.py
+```
+
+**第一次运行只做一件事：在 `Bot/config.yaml` 生成一份带注释的完整配置，然后自动退出**（这是设计如此，不是报错）。接下来编辑这个文件。
+
+### 第 3 步：改 4 个地方
+
+1. **接一个云端大模型**（LLM 是唯一必须可用的组件）：
+
+```yaml
+pipeline:
+  llm:
+    enable: true
+    openai_format: true                        # 走 OpenAI 兼容协议
+    predict_url: "https://api.deepseek.com"    # 填服务的 base_url，不是 /llm/predict
+    api_key: "sk-你自己的密钥"
+    model_id: "deepseek-chat"                  # 该端点支持的任意模型名（无白名单）
+```
+
+2. **先关掉语音链路**（此时没有 Core 服务可连）：
+
+```yaml
+pipeline:
+  asr:
+    enable: false
+  tts:
+    enable: false
+service:
+  microphone:
+    enable: false
+```
+
+3. **选界面**：`service.desktop_shell.enable: true` 用桌宠界面（需要第 1 步装了 PySide6）；填 `false` 就是纯控制台运行。
+
+4. **让它记住你**：记忆功能复用上面那个 LLM（想单独指定更便宜的模型就配 `memory.memory_model`），不需要额外装东西。
+
+### 第 4 步：跑起来
+
+```powershell
+conda activate MyAI
+cd Bot
+python main.py
+```
+
+在桌宠界面里打字，或直接在控制台输入后回车。
+
+### 之后想加什么
+
+| 想要的功能 | 需要加的东西 | 去哪看 |
+|---|---|---|
+| **能听会说** | 云端（百度 ASR / TTS，**不要显卡**）或本机模型（要 N 卡 + 下载权重，约 10 GB） | [3.3](#33-安装-asr-服务qwen3-asr-环境) · [3.4](#34-安装-tts-服务gptsovits-环境) · [4.3](#43-换模型的正确姿势) |
+| **联网搜索 / 新闻** | Core 的 `web_search` 服务（底层 SearXNG 要自己部署） | [3.5](#35-安装-llm--web-search-环境llm_deepseek_online) |
+| **屏幕理解 / 看视频** | 云端 MLLM 或本地 VLM（任意 OpenAI 兼容端点） | [模型组合](#模型组合怎么搭) |
+| **全套本地链路** | 一块 ≥ 8 GB 显存的 N 卡 + 模型权重 | [部署教程](#部署教程) · [3.8](#38-模型权重从哪来放哪去) |
 
 ---
 
@@ -68,6 +166,7 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 - 🐱 **桌宠界面**：置顶、拖拽、托盘、对话气泡（字幕）、按情绪切换表情、退出时记住位置
 - 💬 **纯文本交互窗**：不接麦克风也能用，用来快速试 prompt
 - 🎚️ **自适应语速**：被打断多或输出长时自动加快，空闲后缓慢回落
+- ⚡ **TTS 冷启动预热**：Bot 启动后用默认参考音频做一次**丢弃结果的极短合成**，把 GPT-SoVITS 的一次性开销（参考音频与参考文本的语义特征、nltk / g2pw / jieba 文本前端、CUDA 首次热身）从「第一句话」提前到「还没人说话的空档」，第一句回复不必再等十几秒；一旦有真实语音要合成，预热立刻放弃且不再重试（开关 `pipeline.tts.warmup_on_startup`，默认开）
 - 📊 **Harness 观测体系**：每次调用带 `call_id`、耗时、轮数、token 用量（含缓存命中/未命中）结构化落盘，附带成本看板工具
 - 🔐 **出站网络防护**：网页读取 / MCP 走同一套地址校验，逐跳重校验 + 地址 pinning + 拒绝内网与保留地址
 
@@ -77,8 +176,8 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 
 让 Agent「记得住你」的部分是**完全自研**的（`Bot/memory/`），也是投入较多、想继续做深的一块：
 
-> 为什么不直接使用现成记忆框架 / RAG？本项目作为个人桌面 Agent，长期记忆基本就是聊天记录。首先是数据量级小，不需要为了检索精度做过多的索引优化；其次如果简单地把对话历史全量记忆，会引入大量无效数据（大多是闲聊或临时话题的细节），"全量记忆 + 建索引"的逻辑在这种场景下并不好用。
-> 所以基于本项目的具体场景，我设计了这套记忆系统：原始数据直接筛选压缩，提高数据池质量；做日历式分层记忆——核心记忆置顶，其余记忆按新-旧排序，久远记忆模拟遗忘、淡化细节；后续计划加入一定的向量检索因素，久远记忆不再全量注入 prompt，进一步提升记忆框架的可用性与质量；合并失败时不写库，靠"合并前先备份上一版核心记忆 + 失败即中止"避免压缩模型的偶然崩溃导致记忆丢失。
+> 为什么不直接使用现成记忆框架 / RAG？本项目作为个人桌面 Agent，长期记忆基本就是聊天记录：数据量级小，不需要为检索精度做重度索引优化；而且把对话历史原样全量记下来会引入大量无效数据（大多是闲聊或临时话题的细节）——"什么都记、什么都注入"在这种场景下并不好用。
+> 所以基于本项目的具体场景，我设计了这套记忆系统：原始数据先筛选压缩，提高数据池质量；再做日历式分层记忆——`[长期]` 与 `[标记]` 置顶恒定注入，其余记忆按新-旧排序，越久远越"淡化"；更早的旧事不参与全量注入，而是进条目级向量索引、按需召回；合并失败时不写库，靠"合并前先备份上一版核心记忆 + 失败即中止"避免压缩模型的偶然崩溃导致记忆丢失。
 
 | 阶段 | 做什么 | 关键配置 |
 |---|---|---|
@@ -92,7 +191,12 @@ Zongzi 由 **Bot**（Agent 本体）与 **Core**（模型服务层）两部分�
 - **记忆可以单独用另一个模型**：`memory.memory_model` 能指定独立的（更便宜的、更强的，甚至多模态的）模型专门做提取与合并，不影响主对话模型。
 - **合并是全或无**：任一批合并失败就整体中止 —— 不写 `core_memory`、不归档任何快照，避免半成品污染长期记忆。
 - **和前后台并发共存**：历史被后台压缩时不会覆盖前台的历史（读-改-写有锁保护，压缩游标不会走进注入块）。
-- **还没有做**：向量检索 / RAG —— 目前 `core_memory` 是**全量注入**，体量大时会吃掉上下文预算。检索方案已经设计过，**排在 todo 列表前列**，是下一步的主要方向（`记忆检索（向量召回）`）。
+- **向量检索（RAG）**：`core_memory` 不全量注入。最近一段时间的记忆按现实日期切片后整体注入（`[长期]` + `[标记]` + 常驻窗口），更早的老记忆进条目级索引、按需召回，注入**当轮用户消息**的 `MEMORY` 块；记忆不进 `current_history`，所以历史压缩不可能吃掉记忆块。
+  - 常驻窗口按**天**裁剪：现实日期最近 `min_recent_days` 天无条件保底，再按 `recent_days` / `max_recent_entries` 整日累加；超出 `injection_max_chars` 时按**条目**从最老丢，`[长期]` / `[标记]` 是恒等式、永不丢弃。
+  - 三种召回：明文要求回忆走本地语义路由的 `recall_memory` 意图；模型可自主调用 `memory_recall` 工具；都没触发时按概率"随机想起"一条窗外旧记忆（常驻稀疏时用更高的 `random_probability_sparse`）。
+  - 三态开关 `memory.retrieval.mode`：`off`（不做日期/条数削减的全量注入）、`observe`（注入与 `off` 逐字节一致，只记录本会命中什么）、`on`（真检索）。开着检索但向量模型坏掉时**不回退全量**，只注入常驻窗口并输出明确警告。
+  - 向量模型与语义意图路由**共用同一个 BGE ONNX session**（`Bot/services/embedding/bge_onnx.py`）；索引落在 `Bot/memory/data/index/`，只在合并时重建，启动只加载 + 校验 sha256。
+  - 实现见 `Bot/memory/retrieval.py`（窗口选择、检索、随机召回、热重载）、`Bot/memory/core_memory_parser.py`（档案解析）、`Bot/memory/index_store.py`（索引读写与 sha256 校验）；每个阈值的含义与调参方向见 `Bot/memory/config.py` 里 `RetrievalConfig` 的字段说明。
 
 > 想直接看实现：`Bot/memory/manager.py`（会话快照、压缩游标、批量合并）与 `Bot/memory/config.py`（上面那些配置项）。
 
@@ -201,7 +305,7 @@ flash_attn 2.8.3 + cu128 + torch 2.8.0 + cxx11abiFALSE + cp312 (Python 3.12)
 | # | 情况 | 影响 |
 |---|---|---|
 | 1 | **要用 Qwen3-ASR，就必须 Python 3.12** | 它依赖 `flash-attn`，而 Windows 上 flash-attn 基本编不出来，现成的只有 `cp312` 那个轮子（见 2.3）。→ **只用 sherpa-onnx / 百度云 ASR 的话，ASR 那格 3.11 也行** |
-| 2 | `webrtcvad`（Bot 的语音端点检测）**在任何 Python 上都没有现成轮子** | 得本地编译一次。→ Bot 的 VAD 可以在配置里关掉，关了就不需要它 |
+| 2 | `webrtcvad`（Bot 的语音端点检测）**在任何 Python 上都没有官方轮子** | 得本地编译一次（需要 MSVC 生成工具）。**绕过办法**：装同作者的 `pip install webrtcvad-wheels`（提供同名 `webrtcvad` 模块，Windows 上有 3.10~3.14 的现成轮子）。注意这个包是 `Bot/services/microphone/microphone.py` 的**顶层 import**，所以即使把 VAD 关掉也必须有它 |
 | 3 | 跑 **GPT-SoVITS（TTS）要本地编译 `jieba_fast` 和 `pyopenjtalk`** | 这两个包 PyPI 上只有源码包，没有 Windows 轮子 |
 | 4 | **本地大模型（vLLM）在 Windows 上跑不了** | 所以 LLM 那套默认是纯云 API；想本地跑只能用 `ollama` |
 
@@ -406,7 +510,7 @@ TTS:
 - `character.chat.system_prompt`：角色设定（默认是"粽子"）
 - `character.speech.prompts_dir`：TTS 参考音频目录，按情绪分文件
 - `service.microphone.hotkey`：麦克风开关热键（默认 `f8`）
-- `service.desktop_shell` / `service.chat_window`：界面开关与字号（`chat_window` 原名 `text_input_gui`，旧配置仍兼容）
+- `service.desktop_shell` / `service.chat_window`：界面开关与字号（旧配置里的 `service.text_input_gui` 会被兼容读取）
 
 > 💡 仓库另带一份脱敏样例 `Bot/config.example.yaml`（由作者的运行配置导出），可用于对照字段与默认值；**首次运行重新生成的那份才是权威**，两者不一致时以生成的为准。
 
@@ -425,6 +529,18 @@ python main.py
 ```
 
 Core 服务栈的管理命令：`status` / `logs` / `logs -Service asr` / `restart` / `stop`，合并日志在 `Core/agent-stack/runtime/logs/combined.log`。
+
+> 🔑 **`start_order` 的语义是「同值并行启动、跨值等整组 ready」** —— 不是"同值启动完就立刻进下一组"。
+> Core 默认的 5 个服务（`asr` / `mllm` / `tts` / `llm-memory` / `web_search`）同为 `start_order: 10`，
+> 所以它们**属于同一批**：激活仍逐个串行，但模型加载与健康检查**并行等待**，不会出现"某个服务要等
+> 前面四个全部 ready 才被拉起"的额外延迟。**把某个服务的 `start_order` 单独调大 = 让它等前面所有服务就绪**，
+> 改之前请确认这是你想要的。PowerShell 版（`agent-stack.cmd`）与 Python 版（`agent_stack.py`）语义一致，
+> 改 `registry.json` 一处即可。详见 `Core/agent-stack/README.md`。
+
+Bot 启动时会顺手做一次 **TTS 预热**（用默认参考音频合成一句极短文本，**结果直接丢弃、不会出声**），
+日志里出现 `🔥 TTS 预热完成，耗时 X 秒；首次正式合成不再承担冷启动开销。` 就说明生效了 ——
+这样主人说的第一句话不必再等 GPT-SoVITS 的首次初始化（实测首发 12.8 秒 → 之后 1~2 秒）。
+不想预热就把 `pipeline.tts.warmup_on_startup` 设成 `false`；参考音频尚未准备好时会打一条警告并跳过，不影响启动。
 
 **不在 Windows 上跑？** 用同一份注册表的跨平台启动器（只依赖标准库，Windows / Linux / WSL / macOS 都能跑）：
 
@@ -515,7 +631,8 @@ character:
 | 麦克风没反应 | 检查 `service.microphone.enable` 与热键；`pyaudio` 在部分机器需要先装对应轮子 |
 | TTS 与桌面音频互相自激 | 同时开启桌面音频捕获与 TTS 时，需要虚拟声卡（如 Voicemeeter）把两者分开 |
 | 日志出现 `using heuristic fallback` | `onnxruntime` 没装上，TurnSense 退化成规则判定。装 `onnxruntime`（已在 `Bot/requirements.txt`） |
-| TTS 报找不到参考音频 | 检查 `Bot/resources/prompts/tts/` 的命名（`[zh][Default]….wav`）与 `character.emotions` 白名单是否对得上 |
+| TTS 报找不到参考音频 | 检查 `Bot/resources/prompts/tts/` 的命名（`[zh][Default]….wav`）与 `character.emotions` 白名单是否对得上。**注意**：`pipeline.tts.enable: true` 时这个目录**不能是空的**（否则启动直接抛 `There are no eligible TTS prompts…`）；不用语音就把它设为 `false`，改用云端 TTS 则要同时设 `character.speech.is_remote: true` 并填 `character.speech.prompts` |
+| `pip install webrtcvad` 编译失败 | 缺 MSVC 生成工具。改用现成轮子 `pip install webrtcvad-wheels`（提供同名模块，Windows 3.10~3.14 都有轮子） |
 | 模型加载超时 | 首次加载大模型可能超过启动器的 300 秒默认超时，改 `Core/agent-stack/registry.json` 的 `startup_timeout_seconds` |
 
 ---
@@ -546,13 +663,13 @@ character:
 
 | 位置 | 现状 | 影响 |
 |---|---|---|
-| `Bot/pipeline/*/config.py` 的 `model_id` 字段 | **已全部放宽为自由字符串**（LLM / ASR / TTS / OCR / ImgCap / VLM / MLLM 都接受任意值） | 填任何模型标识都不会再被启动校验拒绝；常见取值写在字段说明里只作提示 |
-| `Core/starter.py` 的 `asr_app()` / `llm_app()` 等 | 用 `if/elif` 链把模型 id 映射到实现类 | **在 Core 侧加本地模型要改这里**（但纯 API 类模型不用，`deepseek_online` 与 `mllm` 都已是"配置驱动"） |
-| Bot 与 Core 的模型 id 命名体系 | 两套不完全一致（Bot 里可能写 `deepseek-chat`，Core 要的是 `deepseek_online/DeepSeek-v4-flash` 等） | 配置时要**以 Core `config.yaml` 的 `id` 为准**，Bot 的 `model_id` 在多数组件里只用于少量分支判断 |
+| `Bot/pipeline/*/config.py` 的 `model_id` 字段 | **自由字符串**（LLM / ASR / TTS / OCR / ImgCap / VLM / MLLM 都接受任意值），启动校验不会拦下任何标识 | 常见取值写在字段说明里，只作提示 |
+| `Core/starter.py` 的 `asr_app()` / `llm_app()` 等 | 用 `if/elif` 链把模型 id 映射到实现类 | **在 Core 侧加本地模型要改这里**（但纯 API 类模型不用，`deepseek_online` 与 `mllm` 都是"配置驱动"） |
+| Bot 与 Core 的模型 id 命名体系 | 两套不完全一致（Bot 里可能写 `deepseek-chat`，Core 要的是 `deepseek_online/DeepSeek-v4-flash` 等） | 配置时**以 Core `config.yaml` 的 `id` 为准**，Bot 的 `model_id` 在多数组件里只用于少量分支判断 |
 
-> 结论：**模型标识这一层已经完全放开** —— 任意 OpenAI 兼容模型可以直接填 `LLM` 的 `model_id`
-> 配合 `openai_format: true` 使用；ASR / TTS / OCR / ImgCap / VLM 填任何字符串也不会再被校验拦下。
-> 唯一需要在代码里登记的环节变成 **Core 侧 `starter.py` 的模型映射**（决定"本地要加载哪个实现"）。
+> 结论：**模型标识这一层是自由填写的** —— 任意 OpenAI 兼容模型可以直接填进 `LLM` 的 `model_id`
+> 配合 `openai_format: true` 使用；ASR / TTS / OCR / ImgCap / VLM 填任何字符串都会通过启动校验。
+> 唯一需要在代码里登记的环节是 **Core 侧 `starter.py` 的模型映射**（决定"本地要加载哪个实现"）。
 
 ### 4.3 换模型的正确姿势
 
@@ -576,13 +693,13 @@ pipeline:
     openai_format: true                        # 走 OpenAI 兼容协议
     predict_url: "https://api.deepseek.com"    # 这里填 base_url，不是 /llm/predict
     api_key: "sk-..."                          # 必填（本地 Ollama 随便填个非空值）
-    model_id: "任何该端点支持的模型名"           # 不再有白名单限制
+    model_id: "任何该端点支持的模型名"           # 自由字符串，无白名单
     temperature: null                          # 留空＝用服务端默认值
 ```
 
 **换 ASR / TTS 到云端**：在 Bot 侧改 `pipeline.asr.model_id` 为 `BaiduASR`（填 api/secret key），TTS 同理改 `BaiduTTS`，此时**不需要启动对应的 Core 服务**。
 
-**加一个全新的本地模型**：需要（a）在 Core 写 model 实现并挂到 `starter.py` 的映射里；（b）Bot 侧**直接填该模型标识**即可，不再需要改枚举。参照 `Bot/docs/` 下的开发指南。
+**加一个全新的本地模型**：需要（a）在 Core 写 model 实现并挂到 `starter.py` 的映射里；（b）Bot 侧**直接填该模型标识**即可，无需改枚举。参照 `Bot/docs/` 下的开发指南。
 
 ---
 
@@ -640,15 +757,19 @@ pipeline:
 
 ```powershell
 conda activate MyAI
-python -m pytest Bot/tests -q            # 全量用例：当前收集 144 个（数字随开发变动）
+python -m pytest Bot/tests -q            # 全量用例：当前收集 193 个（数字随开发变动）
 
-# 只跑核心套件（更快）：p0 冒烟 + 全部 p1，当前收集 135 个
+# 只跑核心套件（更快）：p0 冒烟 + 全部 p1，当前收集 184 个
 python -m pytest Bot/tests/test_p0_smoke.py Bot/tests/test_p1_security.py `
                  Bot/tests/test_p1_voice.py Bot/tests/test_p1_desktop.py `
                  Bot/tests/test_p1_harness.py Bot/tests/test_p1_prompt.py `
                  Bot/tests/test_p1_pseudo_markers.py Bot/tests/test_p1_llm_openai_compat.py `
-                 Bot/tests/test_p1_model_id_freedom.py -q
+                 Bot/tests/test_p1_model_id_freedom.py Bot/tests/test_p1_memory_retrieval.py -q
 ```
+
+> 记忆检索（RAG）的 49 个离线单测都在 `Bot/tests/test_p1_memory_retrieval.py`：
+> 窗口裁剪单位、两级削减、三态开关、`[长期]` / `[标记]` 恒等式、索引校验与重建、共享 embedder 的串行化，
+> 以及「模型坏掉时不回退全量」的降级路径，全部不依赖 Core 服务与 GPU。
 
 `Bot/tests/pipeline/` 下的脚本需要真实的 ASR / LLM / TTS 服务在线，属人工调试脚本，默认不收集（`Bot/tests/pytest.ini` 的 `norecursedirs`）。
 
@@ -657,7 +778,7 @@ python -m pytest Bot/tests/test_p0_smoke.py Bot/tests/test_p1_security.py `
 
 ### 记忆合并（独立脚本）
 
-`Bot/merge_memory.py` 与主程序**互相独立**：它自己加载 `Bot/config.yaml`、走 `memory.memory_model` 指向的 LLM / MLLM 接口，把待合并的历史快照归并进 `core_memory`（覆盖前同样会先把旧档案备份到 `archive/`），做完即退出。
+`Bot/merge_memory.py` 与主程序**互相独立**：它自己加载 `Bot/config.yaml`、把待合并的历史快照归并进 `core_memory`（覆盖前同样会先把旧档案备份到 `archive/`），做完即退出，不会启动对话链路，也不需要 Core 的服务在线（记忆模型走 `memory.memory_model` 指向的 LLM / MLLM 接口）。
 
 ```powershell
 conda activate MyAI
@@ -708,9 +829,10 @@ python Bot/tools/scan_api_surface.py --out api_surface.md
 - **SearXNG 得自己部署**（既不是 pip 包，也不随仓库发布）：不装的话 `search` / `news` 两个联网工具不可用，天气 / Steam / GitHub / 汇率照常工作（见 3.5）
 - **依赖必须分环境装**（最少 3 个：Bot / ASR / TTS，互相冲突不能合并；GPU 依赖需按第三章的具体版本手工对齐）。默认流程用 conda，启动器也支持非 conda 的 `process` runner
 - **`flash-attn` 在 Windows 上难以自行编译**，Qwen3-ASR 路线对版本咬合很严（见 2.3）
-- **加新本地模型需要在 Core 侧登记**（`starter.py` 的映射），尚未做到"纯配置扩展"（见 4.2）；Bot 侧的 `model_id` 已无枚举限制
-- 记忆检索（向量召回）尚未实现（**排在 todo 前列**），长期记忆目前全量注入，体量大时会吃掉上下文预算（见[记忆系统](#记忆系统自研)）
+- **加新本地模型需要在 Core 侧登记**（`starter.py` 的映射），尚未做到"纯配置扩展"（见 4.2）；Bot 侧的 `model_id` 无枚举限制
+- 记忆检索（向量召回）：长期记忆按「`[长期]` + `[标记]` + 常驻窗口 + 按需召回」注入，`core_memory` 不全量进 prompt；**阈值与开关仍是手调的**，`mode: observe` 可用来对照命中率与输入 token（见[记忆系统](#记忆系统自研)）
 - MCP 暂不支持 stdio 传输
+- **TTS 预热无法撤回已经飞出去的那一次请求**：Core 侧 `uvicorn` 是单 worker，且 `/control` 只有 `restart` / `exit`、没有取消接口，所以 `emit_llm_prediction` / `_enqueue_tts_text` 只能保证"还没发的那次不发"。代价不会比不预热更差（预热承担的正是首次正式推理也要付的一次性初始化），但想彻底消灭这个窗口得给 Core 加一个取消端点（未做）
 - 桌面音频捕获与 TTS 同时开启时，需要虚拟声卡（如 Voicemeeter）避免自激循环
 - 部分 conda 版本上 `conda env list` 会内部报错并返回空列表，进而让 `conda env export -n <名字>` **静默导出 base**——请改用仓库根目录的 `generate_env_snapshots.py`
 
@@ -745,3 +867,15 @@ python Bot/tools/scan_api_surface.py --out api_surface.md
 是**线上格式的一部分**：改名会导致按旧串通信的远端连不上。修改前请确认没有外部端在按旧值通信。
 
 **使用须知**：本项目会采集麦克风与桌面音频、操作本地文件（限沙箱目录）、发起出站网络请求，请在了解这些行为的前提下使用，勿用于非法用途。
+
+---
+
+## Contact
+
+| 渠道 | 地址 | 用来做什么 |
+|---|---|---|
+| 📺 **Bilibili** | <https://space.bilibili.com/35778513> | 演示视频、效果展示与更新动态 —— 想先看它跑起来什么样，看这里 |
+| 🐛 **Issue** | 本仓库的 Issues 区 | 报 bug、提问、提需求 —— 新建时会用模板引导你填环境与日志（附上 `Bot/logs/` 里的报错行会快很多） |
+| ⭐ **Star** | 本仓库右上角 | 如果它对你有点用，点一下就是最大的支持 |
+
+> 权重等不随仓库发布的大文件（ASR / TTS / TurnSense / BGE），需要的话可以在 B 站或 Issue 里找我。

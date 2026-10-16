@@ -1,0 +1,108 @@
+name: 🐛 Bug 报告
+description: 有东西不工作、报错，或者行为和你预期的不一样
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！动手填之前请先花一分钟确认两件事，能省掉好几个来回：
+
+        1. README 的 **「3.9 装不上时先查这几条」**与 **「已知限制」**列了最常见的原因（CUDA 轮子不匹配、
+           flash-attn 版本咬合、SearXNG 没部署、参考音频命名不对……）；
+        2. 日志里含**真实对话原文与你的 Windows 用户名**，贴之前请手动脱敏。
+
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前自查
+      options:
+        - label: 我读过 README 的「3.9 装不上时先查这几条」与「已知限制」，确认问题不在其中
+          required: true
+        - label: 我准备贴出的日志已经脱敏（已删除 API Key、姓名、城市、私密对话）
+          required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: 实际发生了什么
+      description: 有报错就贴报错原文（完整 traceback 更好）；界面/播放类问题可以配截图或录屏链接
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 启动 Core：cd Core && agent-stack.cmd start
+        2. 启动 Bot：conda activate MyAI && cd Bot && python main.py
+        3. 按下 f8 说「你好」
+        4. 观察到 ……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run_mode
+    attributes:
+      label: 你的运行模式
+      description: 决定我们要看 Core 的日志还是只看 Bot 的日志
+      options:
+        - 本地全链路（本机 ASR + 本地 LLM/MLLM + 本机 TTS）
+        - 本地 ASR / TTS + 云端 LLM
+        - 全云端 API（百度 ASR/TTS + 在线 LLM）
+        - 只用文本，没接语音
+        - 还没跑起来（安装阶段就出问题）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ui
+    attributes:
+      label: 界面
+      options:
+        - 桌宠界面（PySide6）
+        - 纯控制台
+        - 还没到这一步
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: "`Bot/.version` 里的内容"
+      placeholder: "0.5.1"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 关键日志
+      description: |
+        只贴相关的那几十行就够了。日志位置：
+        - **Bot**：`Bot/logs/`（`harness.jsonl` 是调用观测，含每次调用的耗时与 token）
+        - **Core**：`Core/agent-stack/runtime/logs/combined.log`，或 `agent-stack.cmd logs -Service <名字>`
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      value: |
+        - Windows 版本：
+        - 显卡 / 驱动（`nvidia-smi` 右上角的 CUDA Version）：
+        - conda 环境与 Python 版本（`conda env list`）：
+        - 是否改动过 `config.yaml`（改了哪些项）：
+    validations:
+      required: false

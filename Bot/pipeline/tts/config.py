@@ -55,6 +55,14 @@ class TTSPipelineConfig(AbstractPipelineConfig):
         default=True,
         description="Whether to cancel pending TTS tasks when a new LLM response arrives."
     )
+    warmup_on_startup: bool = Field(
+        default=True,
+        description="Whether the bot sends one throwaway TTS request right after startup. "
+                    "The Core TTS service caches the reference-audio features and lazily loads its "
+                    "text front-end (nltk / g2pw / jieba) on the first request, so the very first "
+                    "real sentence is several seconds late and silent. Warming up moves that cost to "
+                    "startup; the synthesized audio is discarded, never played."
+    )
     adaptive_speed: AdaptiveSpeedConfig = Field(default=AdaptiveSpeedConfig(),
                                                 description="Adaptive TTS speed config.")
     output_device: str | None = Field(default=None,

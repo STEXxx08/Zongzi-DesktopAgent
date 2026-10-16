@@ -83,7 +83,7 @@
       "name": "web_search",
       "enabled": true,
       "runner": "conda",
-      "start_order": 20,
+      "start_order": 10,
       "environment": "llm_deepseek_online",
       "working_directory": ".",
       "command": "python",

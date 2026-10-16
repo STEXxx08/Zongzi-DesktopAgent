@@ -87,7 +87,10 @@ agent-stack.cmd stop
 | LLM memory | `llm_deepseek_online` | Core 根目录 | 10010 |
 | Web Search | `llm_deepseek_online` | Core 根目录 | 11012 |
 
-共 **5 个**服务。`start_order`：asr / mllm / tts / llm-memory 为 10，web_search 为 20（见 `registry.json`）。启动器会串行执行每个服务的 Conda 激活；前一个环境写入激活成功标记后，才激活下一个环境。已经激活的服务会立即开始加载模型，因此模型加载仍然可以并行进行。
+共 **5 个**服务。`start_order` 全部为 10（见 `registry.json`）：5 个服务同属一组，
+激活阶段串行、模型加载与就绪等待并行，因此 `web_search` 不会等到其它四个服务全部 ready
+之后才被拉起。启动器会串行执行每个服务的 Conda 激活；前一个环境写入激活成功标记后，
+才激活下一个环境。已经激活的服务会立即开始加载模型，因此模型加载仍然可以并行进行。
 
 每个 Conda 服务都在自己的 `cmd.exe` 环境中执行：
 

@@ -12,6 +12,7 @@ from common.untrusted import neutralize_markers
 class ContextBlockKind(str, Enum):
     RUNTIME = "runtime"
     PRIMARY = "primary"
+    MEMORY = "memory"
     ENVIRONMENT = "environment"
     TOOL_RESULT = "tool_result"
     SKILL = "skill"
@@ -45,7 +46,11 @@ class PreparedContext:
         return "\n\n".join(
             block.content if block.kind == ContextBlockKind.PRIMARY else block.render()
             for block in self.blocks
-            if block.kind in {ContextBlockKind.PRIMARY, ContextBlockKind.TOOL_RESULT}
+            if block.kind in {
+                ContextBlockKind.PRIMARY,
+                ContextBlockKind.MEMORY,
+                ContextBlockKind.TOOL_RESULT,
+            }
         ).strip()
 
 
@@ -71,6 +76,7 @@ class ContextManager:
         tool_context: str | None = None,
         skill_context: str | None = None,
         tool_instruction: str | None = None,
+        memory_context: str | None = None,
         turn_notices: Iterable[str] = (),
         current_time: datetime | None = None,
         proactive: bool = False,
@@ -118,6 +124,18 @@ class ContextManager:
             content=primary_text,
             source="用户输入" if user_text else "系统主动搭话",
         ))
+
+        # 记忆放在当轮用户消息里（而不是 system 前缀）：窗口边界随日历滑动，
+        # 进 system 会让每天零点全量 prompt 缓存失效；同时记忆根本不进
+        # current_history，从结构上排除"历史压缩吃掉记忆块"的风险（方案 D2/D11）。
+        if memory_context and memory_context.strip():
+            blocks.append(ContextBlock(
+                kind=ContextBlockKind.MEMORY,
+                title="记忆",
+                # 记忆源自用户语音与外部内容，属间接提示注入面：中和机器标记
+                content=neutralize_markers(memory_context.strip()),
+                source="本地记忆档案",
+            ))
 
         environment_parts = []
         for source, content in environment:

@@ -24,6 +24,13 @@ try:
 except ImportError:
     from config import MemoryConfig
 
+try:
+    from .core_memory_parser import split_pinned_segment, splice_pinned_segment
+    from .retrieval import MemoryRetriever, MODE_ON
+except ImportError:  # pragma: no cover - 直接以 memory/ 为工作目录运行时的回退
+    from core_memory_parser import split_pinned_segment, splice_pinned_segment
+    from retrieval import MemoryRetriever, MODE_ON
+
 
 @dataclass
 class SnapshotSaveResult:
@@ -171,10 +178,11 @@ EXTRACT_SYSTEM_PROMPT = (
     "- 对话发生的时间以时间戳时间为准，不要对话以外的信息做推理或猜测。\n"
     "- 提取信息时，要确保描述客观事实，不应该包含主观判断或推测。（如‘用户在XX时XX分看了XX视频’，而不是‘用户有观看xx视频的习惯’）\n"
     "- 如果对话中没有新的可提取信息，输出 '无新信息'。\n\n"
-    "**过往 core_memory（只读参考，不得将 core_memory 中已有的信息当作当前对话的新信息输出）**：\n"
-    "<core_memory>\n"
-    "{core_memory}\n"
-    "</core_memory>\n"
+    "**最近已有的记忆（只读参考）**：\n"
+    "以下是最近已有的记忆（只读参考）。不要重复输出其中已记录的信息，只输出本次对话里的**新增**信息。\n"
+    "<已有记忆>\n"
+    "{recent_memory}\n"
+    "</已有记忆>\n"
 )
 
 # 合并专用的 system_prompt
@@ -194,11 +202,16 @@ MERGE_SYSTEM_PROMPT = (
     "- **真正冲突**：仅当新记忆明确表示否定或替代旧记忆时（如'戒咖啡了'、'现在不喜欢喝茶了'），才使用'曾经……现在……'格式保留变迁历史，例如：'用户曾经喜欢喝美式咖啡 (自2024-06-10起)，现在戒咖啡 (自2026-06-18起)'。\n\n"
     "**时效性**：\n"
     "- 月份标题按时间**倒序**排列（最新的月份在最上面）。\n\n"
-    "**去重与遗忘**：\n"
-    "- 对旧的记忆，为了控制记忆大小和模拟遗忘，需要进行合并或删除，条件如下：\n"
-    "   - 几乎完全重复的条目直接合并或将新的删除。\n"
-    "   - 距今一周以前的条目，信息重复的直接合并或将旧的删除。信息质量低(即大概率聊天不会再提到的杂乱信息)的条目压缩细节\n"
-    "   - 距今一个月以前的条目，信息基本重复的直接合并或将旧的删除，信息质量低(即大概率聊天不会再提到的杂乱信息)的条目压缩细节或直接删除。\n"
+    "**禁止删除（最重要的一条）**：\n"
+    "- **绝对不许删掉任何一条日期块条目。** 原始对话里的细节可以丢弃，但条目本身必须留下，\n"
+    "  而且必须保留它原来的日期与缩进层级（日期块被删掉就无法被检索到）。\n"
+    "- 允许改写、合并同一条目内部的表述，也允许把同一日的多条合并成一条，但不允许把某一天整块删空。\n"
+    "- 不要新增对话与旧记忆里都不存在的事实。\n\n"
+    "**分级软化压缩（尽量做到，不硬性）**：\n"
+    "- 距今 7 天以上：尽量淡化细节。\n"
+    "- 距今 30 天以上：强调丢弃细节、只留核心，尽量减少一日之内的条目数。\n"
+    "- 距今 90 天以上：每条尽量并入一行。\n"
+    "- 距今 365 天以上：每日尽量并入两条以内。\n\n"
     "**输出示例（必须模仿此缩进）**：\n"
     "[长期]:\n"
     "  - 用户喜欢喝美式咖啡 (自2024-06-10起, 最后确认于2026-06-18)\n"
@@ -218,6 +231,7 @@ class MemoryManager:
             mllm_config: Optional[Any] = None,
             merge_llm_config: Optional[Any] = None,
             merge_mllm_config: Optional[Any] = None,
+            retriever: Optional[MemoryRetriever] = None,
     ):
         self.config = config
         self.data_dir = config.data_dir
@@ -276,6 +290,16 @@ class MemoryManager:
         # 线程池：用于异步保存，max_workers=1 保证顺序执行，避免 IO/计算冲突
         self._executor = ThreadPoolExecutor(max_workers=1) if config.async_save else None
         self._lock = threading.Lock()
+
+        # 记忆检索器：只负责"窗口选择 + 渲染 + 索引"，不依赖向量模型也能工作
+        # （mode: off 时不需要 BGE）。bot.py 会传入同一个实例，使工具链路与
+        # 抽取参考共用一份解析结果。
+        self.retriever = retriever or MemoryRetriever(
+            config.retrieval,
+            data_dir=self.data_dir,
+            core_path=self.data_dir / "core_memory.md",
+            injection_max_chars=config.injection_max_chars,
+        )
 
         # 运行时状态
         self.core_memory_text = self._load_core_memory()
@@ -358,12 +382,11 @@ class MemoryManager:
         date_context = f"现在的时间是 {now.strftime('%Y%m%d_%H%M%S')}。请将以下对话中可提取的信息按上述日期归档。\n\n"
         full_text = date_context + dialog_text
 
-        core_memory = (self.get_core_memory() or "").strip()
         system_msg = Conversation(
             role=RoleEnum.system,
             content=EXTRACT_SYSTEM_PROMPT.replace(
-                "{core_memory}",
-                core_memory or "（暂无 core_memory）",
+                "{recent_memory}",
+                self.recent_reference_text() or "（暂无已有记忆）",
             ),
         )
         try:
@@ -397,6 +420,31 @@ class MemoryManager:
     # ---------- 公共方法 ----------
     def get_core_memory(self) -> str:
         return self.core_memory_text
+
+    def recent_reference_text(self, text: Optional[str] = None) -> str:
+        """抽取 prompt 用的只读参考：`[长期]` + 窗口内条目（不含 `[标记]`、不含老记忆）。
+
+        窗口计算是纯文本操作，不依赖 BGE，因此与 `retrieval.mode` 无关（方案 §6.1）。
+        """
+        if self.retriever is None:
+            return (text if text is not None else self.get_core_memory()) or ""
+        try:
+            return self.retriever.recent_reference_text(
+                text if text is not None else self.get_core_memory()
+            )
+        except Exception as exc:  # noqa: BLE001 - 参考文本算不出来也不能拖垮抽取
+            logger.warning(f"🧠 计算抽取参考文本失败，回退为整份记忆：{exc}")
+            return (text if text is not None else self.get_core_memory()) or ""
+
+    def rebuild_index(self) -> bool:
+        """重建检索索引（失败只记日志，不影响 core_memory；方案 §7）。"""
+        if self.retriever is None:
+            return False
+        try:
+            return bool(self.retriever.rebuild_index())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"🧠 记忆索引重建失败（不影响 core_memory）：{exc}")
+            return False
 
     def reset_saved_index(self, injected_len: int) -> None:
         """记录注入块长度（system 提示 + injected_history 的条数）。
@@ -721,17 +769,23 @@ class MemoryManager:
                 return True
 
             current_core = self.get_core_memory()
+            # `[标记]` 段在合并中必须被完全忽略：由程序剥离并暂存原文（原样保留），
+            # 合并输出写盘前再原样插回 `[长期]` 之后。这样"标记段被忽略"不依赖
+            # 模型服从 prompt，也就不需要输出逐字校验（方案 §6.2(d)）。
+            current_body, pinned_segment = split_pinned_segment(current_core)
+            current_body = current_body.strip()
             # merged_texts 是列表：必须 join 后再拼进 prompt（连同下面的核心记忆2 分支），
             # 否则 Python 的 list repr（['...', '...']）会污染合并输入。
             merged_text = "\n\n".join(text for text in merged_texts if text)
-            if current_core:
-                final_combined = f"核心记忆1：\n{current_core}\n\n核心记忆2：\n{merged_text}\n\n"
+            if current_body:
+                final_combined = f"核心记忆1：\n{current_body}\n\n核心记忆2：\n{merged_text}\n\n"
             else:
                 final_combined = merged_text
 
             merge_instruction = (
                 "严格遵循上方的规则，将所有核心记忆合并为一份最终的 core_memory。\n"
-                "必须重新评估旧记忆：允许删除过时、重复或低质量的条目，压缩冗余表述。"
+                "必须重新评估旧记忆：允许压缩冗余表述、合并同一日内的重复内容，"
+                "但**禁止删除任何条目**，并且必须保留每条记忆原来的日期。"
 )
 
             system_msg = Conversation(role=RoleEnum.system, content=MERGE_SYSTEM_PROMPT + "\n\n" + merge_instruction)
@@ -746,7 +800,10 @@ class MemoryManager:
                 logger.error("Final core memory merge failed.")
                 return False
 
-            self._save_core_memory(final_pred.response)
+            final_text = splice_pinned_segment(final_pred.response.strip(), pinned_segment)
+            if pinned_segment:
+                logger.info("🧠 [标记] 段已原样拼回合并结果（未参与合并）。")
+            self._save_core_memory(final_text)
 
             archive_dir = self.data_dir / "archive"
             archive_dir.mkdir(exist_ok=True)
@@ -755,6 +812,12 @@ class MemoryManager:
                 if dest.exists():
                     dest = archive_dir / f"{f.stem}_{datetime.now().strftime('%H%M%S')}.md"
                 f.rename(dest)
+
+            # 索引与常驻文本必须成对更新：core_memory 变了，旧索引立即失效。
+            if self.retriever is not None:
+                self.retriever.reload()
+                if self.retriever.config.mode == MODE_ON:
+                    self.rebuild_index()
 
             logger.info(f"🧠 Merge completed. {len(snapshot_files)} files archived.")
             return True

@@ -46,6 +46,8 @@ from manager.config_manager import get_config, get_project_dir
 from manager.context_manager import ContextManager
 from pipeline.ocr.ocr_sync import avg_confidence, stringify
 from memory.manager import MemoryManager, resolve_memory_model_configs
+from memory.retrieval import MODE_ON, MemoryRetriever, RetrievalUnavailable
+from services.memory_recall import MemoryService
 from pipeline.vlm.vlm_sync import VLMQuery
 from pipeline.mllm.mllm_sync import MLLMSyncPipeline
 from pipeline.mllm.config import MLLMPipelineConfig
@@ -118,10 +120,45 @@ class Bot(BaseBot):
         self.browser_service = BrowserService(
             _config.service.browser, self.tool_runtime, self.sandbox_service, self.mcp_service,
         )
+        # 初始化记忆管理器（支持记忆提取/合并使用单独模型配置）。
+        # 必须早于 ModelToolGateway：memory_recall 的说明要作为一条 policy 进去。
+        self.memory_manager: MemoryManager | None = None
+        self.memory_retriever: MemoryRetriever | None = None
+        self.memory_service: MemoryService | None = None
+        if _config.memory.enable:
+            # 检索器与记忆管理器共享同一个实例：档案热重载与索引才是"成对替换"的。
+            self.memory_retriever = MemoryRetriever(
+                _config.memory.retrieval,
+                data_dir=_config.memory.data_dir,
+                core_path=_config.memory.data_dir / "core_memory.md",
+                injection_max_chars=_config.memory.injection_max_chars,
+            )
+            memory_model_configs = resolve_memory_model_configs(_config)
+            self.memory_manager = MemoryManager(
+                config=_config.memory,
+                retriever=self.memory_retriever,
+                **memory_model_configs,
+            )
+            # 设置初始保存索引：注入块（system 提示 + injected_history）不参与压缩
+            self.memory_manager.reset_saved_index(self.llm_prompt_manager.injected_len)
+            self.memory_service = MemoryService(
+                _config.memory, self.tool_runtime, self.memory_retriever
+            )
+            # 查询兜底链：模型（或意图路由）给的 query 空泛时，退回最近一轮用户话。
+            self._last_user_text = ""
+            self.memory_service.set_fallback_provider(lambda: self._last_user_text)
+            logger.info("🧠 记忆管理器已初始化，并已设置注入历史索引。")
+            # 记忆**不再**拼进 system_prompt：常驻窗口随日历滑动，进 system 会让
+            # 每天零点全量 prompt 缓存失效。记忆改为当轮用户消息里的 MEMORY 块（方案 D2/M2）。
+            self.memory_retriever.startup_check()
+
         self.model_tool_gateway = ModelToolGateway(
             self.tool_runtime, marker=tool_config.model_marker,
-            policy_providers=(self.sandbox_service.model_instruction, self.mcp_service.model_instruction,
-                              self.browser_service.model_instruction),
+            policy_providers=tuple(filter(None, (
+                self.sandbox_service.model_instruction, self.mcp_service.model_instruction,
+                self.browser_service.model_instruction,
+                self.memory_service.model_instruction if self.memory_service else None,
+            ))),
         )
         self.skill_service = SkillService(
             _config.service.skills,
@@ -133,23 +170,6 @@ class Bot(BaseBot):
             tool_runtime=self.tool_runtime,
             auto_initialize=False,
         )
-        # 初始化记忆管理器（支持记忆提取/合并使用单独模型配置）
-        self.memory_manager: MemoryManager | None = None
-        if _config.memory.enable:
-            memory_model_configs = resolve_memory_model_configs(_config)
-            self.memory_manager = MemoryManager(
-                config=_config.memory,
-                **memory_model_configs,
-            )
-            # 设置初始保存索引：注入块（system 提示 + injected_history）不参与压缩
-            self.memory_manager.reset_saved_index(self.llm_prompt_manager.injected_len)
-            logger.info("🧠 记忆管理器已初始化，并已设置注入历史索引。")
-            if self.memory_manager:
-                core_mem = self.memory_manager.get_core_memory()
-                if core_mem:
-                    self.system_prompt += f"\n\n关于用户的长期记忆:\n{core_mem}"
-                    self.llm_prompt_manager.replace_system_prompt(self.system_prompt)
-                    
         self._vlm_running = False          # VLM 是否正在执行
         self._vlm_result = None            # 最新 VLM 结果
         self._vlm_timer = None             # 计时器对象
@@ -246,6 +266,10 @@ class Bot(BaseBot):
         self._interrupt_required = False
         self.speed_step = 0
         self._last_tts_enqueue_time = time.monotonic()
+        # TTS 预热的中止闸门：只要真的有一句话要合成，预热立刻让路并永久放弃。
+        # Core 侧是单 worker 的 uvicorn，预热请求和正式请求在服务端是排队的，
+        # 所以预热只允许占用"启动后还没人说话"的空档。
+        self._tts_warmup_abort = threading.Event()
 
         self.init()
         logger.info("🤖 Bot 服务初始化成功。")
@@ -291,6 +315,12 @@ class Bot(BaseBot):
 
             for thread in threads:
                 thread.start()
+
+            # TTS 预热不参与上面的 KillableThread 生命周期（它可能阻塞在 HTTP 上），
+            # 单独跑一个守护线程；Core 侧 TTS 服务可能比 Bot 晚就绪，失败会自动重试。
+            threading.Thread(
+                target=self._warmup_tts, daemon=True, name="TTSWarmupThread"
+            ).start()
 
             try:
                 await asyncio.sleep(0)
@@ -781,6 +811,66 @@ class Bot(BaseBot):
                 ).start()
             self._refresh_semantic_asr_runtime_config(reset_state=True)
 
+    def _warmup_tts(self, attempts: int = 3, retry_delay: float = 10.0) -> None:
+        """启动时把 TTS 的冷启动开销提前做掉，别让主人听见第一句话前先干等。
+
+        Core 侧 GPT-SoVITS 把参考音频的语义特征、参考文本的 BERT 特征缓存在服务进程的
+        prompt_cache 里，nltk / g2pw / jieba 等文本前端资源也是首次推理才加载；这些一次性
+        工作落在正式的第一句话上就是十几秒没有声音（实测 13 秒 vs 之后 1~2 秒）。
+        这里用默认参考音频合成一段极短文本，音频直接丢弃、不播放，只为了让第一次正式
+        合成走热路径。Core 与 Bot 分开启动、Core 可能还没起来，所以失败会重试几次。
+
+        预热**随时让路**：Core 侧是单 worker 的 uvicorn，预热请求和正式请求在服务端是排队的，
+        所以只要这一轮对话已经开始（`emit_llm_prediction`）或者已经有话要合成
+        （`_enqueue_tts_text`）置位了 `_tts_warmup_abort`，等待中的重试立刻结束、
+        且不再发起新的尝试——预热只该占用启动后还没人说话的空档。
+        注意：已经发出去的那次请求撤不回来（Core 侧没有取消接口），但它做的正是第一次
+        正式推理本来也要付的一次性初始化，所以最坏情况不会比不预热更慢。
+        """
+        if not _config.pipeline.tts.warmup_on_startup:
+            logger.debug("TTS 预热已按配置关闭。")
+            return
+        if self.tts is None or self.tts_prompt_manager is None:
+            return
+        prompts = self.tts_prompt_manager.tts_prompts
+        prompt = self.tts_prompt_manager.default_tts_prompt or (prompts[0] if prompts else None)
+        if prompt is None:
+            logger.warning("没有可用的 TTS 参考音频，跳过预热。")
+            return
+
+        abort = self._tts_warmup_abort
+        query = TTSQuery(
+            text="你好。",
+            text_language="auto",
+            refer_wav_path=prompt.audio_path,
+            prompt_text=prompt.prompt_text,
+            prompt_language=prompt.lang,
+            audio_type="wav",
+            speed_factor=1.0
+        )
+        for attempt in range(1, attempts + 1):
+            if abort.is_set():
+                logger.info("有真实语音要合成，TTS 预热提前放弃。")
+                return
+            started = time.monotonic()
+            try:
+                self.tts.predict(query=query)
+            except Exception as exc:
+                logger.warning(f"TTS 预热第 {attempt}/{attempts} 次失败：{exc}")
+                if attempt >= attempts:
+                    break
+                # 等待期间一旦有真实 TTS 需求就立刻唤醒，不再往下重试
+                if abort.wait(retry_delay):
+                    logger.info("有真实语音要合成，TTS 预热提前放弃。")
+                    return
+                continue
+            logger.info(
+                f"🔥 TTS 预热完成，耗时 {time.monotonic() - started:.2f} 秒；"
+                f"首次正式合成不再承担冷启动开销。"
+            )
+            return
+        logger.warning("TTS 预热始终失败，首次正式合成仍会承担冷启动开销。")
+
     def _tts_without_block(
         self, tts_prompt: TTSPrompt, text: str, speed_factor: float = 1.0,
         emotion: str | None = None,
@@ -920,6 +1010,9 @@ class Bot(BaseBot):
     def _enqueue_tts_text(
         self, text: str, tts_prompt: TTSPrompt | None = None, emotion: str | None = None
     ) -> bool:
+        # 这里是真的要合成语音的唯一入口：先让预热让路。
+        # 预热只是提前承担"第一次推理的一次性开销"，正式请求一来就没必要再占服务端。
+        self._tts_warmup_abort.set()
         tts_text = self._prepare_tts_text(text)
         if not tts_text:
             return False
@@ -1324,6 +1417,31 @@ class Bot(BaseBot):
             return plain, pseudo_pending + pending
         return plain, pseudo_pending
 
+    def _memory_context_for_turn(self, user_text: str, *, allow_random: bool) -> str | None:
+        """组装当轮 `MEMORY` 块（常驻窗口 + 随机回忆）。
+
+        - 每轮先做一次 `stat` 级热重载检查：`merge_memory.py` 可能在 Bot 运行期间
+          写盘，磁盘档案与索引都变了，而内存里还是旧值（方案 §8.3 热重载）。
+        - 任何异常都只降级成本轮不加记忆块，绝不让记忆系统打断对话。
+        """
+        retriever = self.memory_retriever
+        if retriever is None:
+            return None
+        try:
+            retriever.refresh()
+        except Exception as exc:
+            logger.warning(f"🧠 记忆档案热重载检查失败（忽略）：{exc}")
+        try:
+            turn = retriever.build_turn_memory(
+                query=user_text or None, allow_random=allow_random
+            )
+        except Exception as exc:
+            logger.warning(f"🧠 组装记忆块失败，本轮不加记忆块：{exc}")
+            return None
+        for warning in turn.warnings:
+            logger.error(f"🧠 记忆检索降级：{warning}")
+        return turn.text
+
     def emit_llm_prediction(
         self,
         text,
@@ -1343,6 +1461,9 @@ class Bot(BaseBot):
         _turn_history: tuple[Conversation, ...] = (),
     ) -> LLMPrediction | None:
         turn_id = _turn_id if _turn_id is not None else self._next_turn_id()
+        # 一轮对话已经开始了（用户说完/输入完，正在等回复）：TTS 预热不再等待、不再重试。
+        # 这是最早能观测到"马上要用到 TTS"的位置，比真正合成早一次模型推理的时间。
+        self._tts_warmup_abort.set()
         logger.debug(
             f"调用 emit_llm_prediction：conversation_id={self.conversation_id}，"
             f"turn_id={turn_id}，已完成工具轮数={_tool_round}"
@@ -1386,6 +1507,7 @@ class Bot(BaseBot):
 
         # 感知结果只是本轮上下文，不写入对话历史。
         user_text = text if text else ""
+        self._last_user_text = user_text
         environment_context: list[tuple[str, str]] = []
         # ---------- 主动搭话提示 ----------
         proactive = not text
@@ -1474,6 +1596,12 @@ class Bot(BaseBot):
             tool_context=_tool_context,
             skill_context=_skill_context,
             tool_instruction=compose_tool_instructions(model_instructions),
+            # 常驻记忆 + 随机回忆：恒定注入当轮用户消息，不动 system 前缀（方案 D2/D15）。
+            # 工具轮不再掷骰，避免同一个 turn 里重复回忆。
+            memory_context=self._memory_context_for_turn(
+                user_text,
+                allow_random=(_tool_context is None and _skill_context is None),
+            ),
             turn_notices=turn_notices,
             current_time=datetime.now(),
             proactive=proactive,

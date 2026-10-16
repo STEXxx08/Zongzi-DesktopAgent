@@ -1,0 +1,10 @@
+# Issue 模板目录的配置（不是模板本身）
+#
+# blank_issues_enabled: 是否允许提"空白 issue"（不用模板）。留 true 是为了
+#   不把只想随便问一句的人挡在门外；想强制走模板就改成 false。
+# contact_links: 会显示在「新建 issue」页面的顶部，用来把人引到更合适的地方。
+blank_issues_enabled: true
+contact_links:
+  - name: 📺 演示视频与更新动态（Bilibili）
+    url: https://space.bilibili.com/35778513
+    about: 想先看看它跑起来是什么样、或者看最新进展，来这里

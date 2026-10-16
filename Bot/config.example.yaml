@@ -366,6 +366,29 @@ service:
           - '帮我进行货币换算'
         strip_patterns: []
         default_query: ''
+      # ────────── 记忆召回（RAG 的关键词触发）──────────
+      # 链路：用户明文说"你还记得…" → 本地 BGE 语义路由命中本意图 → 直接调 memory_recall 工具
+      #       → 结果进【工具结果】块 → LLM 用一轮回答（关键词路径总共仍是 1 次 LLM 调用）。
+      # 调"敏不敏感"：往 examples 里加说法，或改 service.intent_router.confidence_threshold /
+      # margin_threshold（后者影响所有意图）。
+      # 工具只在 memory.retrieval.mode: 'on' 时注册；off / observe 下本意图匹配不到工具。
+      - name: recall_memory
+        action: tool
+        tool: memory_recall
+        acknowledgement: '嗯…让我想想喵。'   # 命中后先播这句（{bot_name} 会被替换成角色名），不额外调用 LLM
+        examples:
+          - '你还记得我之前说过什么吗'
+          - '回忆一下上个月的事'
+          - '我们以前聊过这个话题吗'
+          - '帮我翻翻旧记忆'
+          - '我之前跟你说过的那件事'
+          - '你记不记得我喜欢喝什么'
+        # 故意留空：召回要的是"用户原话"这种自然语言查询，过度剥离会把整句剥成残字
+        # （实测加了剥离规则后"你还记得我之前说过什么吗"→"我"）。路由自带的通用剥离
+        # 只去掉首尾客套词（帮我/请你/…吗/呢）。
+        strip_patterns: []
+        # 兜底查询。留空即可：工具侧还会做二次兜底——剥离结果短于 2 字时自动改用最近一轮用户话。
+        default_query: ''
     # 说明：Web 工具的协议标记由 service.web_search.model_marker 决定（默认 web_tool），
     # 意图路由本身不读 model_marker，原先这里的 model_marker 键从未生效，已删除。
   # 联网工具（search / weather / news / steam / github / exchange_rate）。
@@ -511,6 +534,60 @@ memory:
   # 0 disables compaction; 1  immediate compressed; 2 keeps the
   # latest save_interval_rounds rounds uncompressed, and so on.
   compact_history_after_save: 3
+  # 通用注入上限：对「常驻 / 检索 / 全量回退」三条路径都生效。
+  # 单位是**字符**、削减单位是**条目**：超出时从最老的条目开始整条丢（不是整日丢，也不是按字符截断）。
+  # [长期] 与 [标记] 是恒等式、永不丢弃；若它俩本身就超上限 → 记 ERROR 但仍全量注入，并在块内注明。
+  injection_max_chars: 10000
+  # ─────────────── 记忆检索（RAG） ───────────────
+  # 注入位置：
+  #   常驻部分  → 当轮用户消息的【记忆】块（不是 system，也不进 current_history）
+  #   随机想起  → 同一个【记忆】块的**尾部小节**，空行分隔，自带"（偶尔回想起的旧事…）"小标题
+  #   关键词/LLM 触发的检索结果 → 【工具结果】块（走通用工具链路）
+  # 块序：运行时上下文 → 主要内容 → 记忆 → 辅助环境参考 → 工具结果 → Skill
+  #
+  # mode 三态（注意加引号：YAML 1.1 会把裸写的 on/off 解析成布尔值）：
+  #   'off'     = 不做日期/条数削减：全部条目 + [长期] + [标记]，只受 injection_max_chars 约束（静默）
+  #   'observe' = 注入文本与 'off' **逐字节一致**，但每轮在日志里记录"本会命中什么"
+  #   'on'      = [长期] + [标记] + 常驻窗口 +（BGE 可用时）检索块
+  # 开着检索但 BGE 坏掉时**不回退全量**：只注入常驻窗口 + 日志 ERROR 警告（避免静默降级掩盖故障）。
+  retrieval:
+    mode: 'off'
+    # ── 常驻窗口：日期与条数互为上界，裁剪单位是「天」（整日进出，绝不切半天）──
+    # ① 无条件保底：现实日期最近 k 天内的条目始终注入，**不受条数上限约束**
+    #    （保证"昨天/前天的事"完整在场；用户 40 天没来时，40 天前的块不会被复活）
+    min_recent_days: 3
+    # ② 自然窗口：从最新往回整日累加，直到「超过 recent_days 天」或「累计条数 >= max_recent_entries」。
+    #    遍历的是**档案里存在的日期块**，不是逐日历日扣预算（日期块不连续时不浪费预算）。
+    recent_days: 30
+    max_recent_entries: 100
+    # [长期] 恒等式：恒定全量注入，不计入上面的天数/条数统计，也不参与时间衰减。
+    long_term_always_inject: true
+    # [标记] 恒等式：位置固定在 [长期] 之后、第一个月份之前；合并与压缩都忽略它
+    # （合并前由程序剥离、合并后原样拼回，不依赖模型自觉）。
+    pin_always_inject: true
+    # ── 检索 ──
+    top_k: 4                  # 单轮召回条目数上限
+    same_day_expand: 3        # 每个命中条目再带出同日条目的上限；0 = 最干净最省 token
+    # 余弦阈值。实测参考（109 条条目级索引）：元问题 top≈0.58、"热可可"≈0.51、无关查询天花板≈0.43，
+    # 内容型查询（"上次那个跑团" 0.66、"明朝皇帝游戏" 0.68）多数 ≥0.60。
+    # 调高 = 更保守（宁可少召回），调低 = 更容易召回但更容易夹带噪声。
+    min_score: 0.50
+    max_chars: 1200           # 单轮检索块字符上限，超出时截断并注明
+    # ── 随机偶发触发：仅在本轮没有关键词/LLM 触发时掷骰 ──
+    random_probability: 0.05
+    random_probability_sparse: 0.30   # 常驻稀疏时改用这个概率
+    sparse_resident_entries: 5        # 常驻条目数 <= 此值算"稀疏"
+    random_repeat_ttl_hours: 6        # 同一条旧记忆在这段时间内不会被再"想起"
+    # ── 向量模型：与 service.intent_router 共用同一份模型与同一个 onnxruntime session ──
+    model_path: 'models/bge-small-zh-v1.5-onnx'
+    onnx_model: 'onnx/model_quantized.onnx'   # 还要有同目录的 .onnx_data 外置权重（约 23.7 MB）
+    providers: ['CPUExecutionProvider']
+    max_length: 128           # 截断长度按调用传参，不参与共享 session 的 key（64/128 也共用一份）
+    intra_op_threads: 1
+    inter_op_threads: 1
+    # 模型加载失败后的重试探间隔：指数退避，避免每轮重试拖慢对话。
+    retry_initial_seconds: 60
+    retry_max_seconds: 600
   memory_model:
     enable: true
     type: llm  # llm or mllm

@@ -28,6 +28,25 @@ def _file_level() -> str:
     return (os.environ.get("BOT_FILE_LOG_LEVEL") or "DEBUG").strip().upper() or "DEBUG"
 
 
+def _emit_depth() -> int:
+    """算出 loguru 需要跳过的帧数，让日志指向真正调用 logging 的那行代码。
+
+    loguru 的 depth=0 是 emit 自身，往上依次是 logging 的 `handle` / `callHandlers` /
+    `_log` / `info` …… 一路跳过 logging 包内部与本模块的帧，停在第一个业务帧。
+    不改的话，所有标准 logging 的记录都会显示成 `logging:callHandlers:xxxx`。
+    """
+    logging_file = logging.__file__
+    own_file = __file__
+    frame, depth = sys._getframe(1), 0
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if filename != logging_file and filename != own_file:
+            return depth
+        frame = frame.f_back
+        depth += 1
+    return 0
+
+
 class _LoguruInterceptHandler(logging.Handler):
     """把标准 logging 的记录转交给 loguru。"""
 
@@ -36,11 +55,7 @@ class _LoguruInterceptHandler(logging.Handler):
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        logger.opt(depth=_emit_depth(), exception=record.exc_info).log(level, record.getMessage())
 
 
 def configure_app_logging(project_root: Path | None = None, *, force: bool = False) -> None:
@@ -81,11 +96,16 @@ def configure_app_logging(project_root: Path | None = None, *, force: bool = Fal
                 diagnose=False,
             )
 
-    # 标准 logging -> loguru：替换已有 handler，避免同一行输出两次
+    # 标准 logging -> loguru：拦截 handler **只挂 root 一个**。
+    # 之前给每个已存在的 logger 都挂了 handler 且 propagate 仍为 True，
+    # 一条记录会沿父链（子级 / 祖先级 / root）被反复 emit——实测同一条
+    # 消息连着出现 4 次，时间戳完全相同。现在子 logger 一律清空 handler
+    # 并保持 propagate=True，记录只会由 root 转交一次。
     intercept = _LoguruInterceptHandler()
     logging.basicConfig(handlers=[intercept], level=logging.INFO, force=True)
     for name in list(logging.root.manager.loggerDict):
-        logging.getLogger(name).handlers = [intercept]
-    logging.getLogger().handlers = [intercept]
+        target = logging.getLogger(name)
+        target.handlers = []
+        target.propagate = True
 
     _configured = True
