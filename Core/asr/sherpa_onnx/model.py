@@ -19,6 +19,7 @@ class SherpaONNXASRModel:
         self._stream = None
         self._lock = Lock()
         self._last_text = ""
+        self._provider_fallback_error = ""
 
     @log_model_loading("Sherpa-ONNX Streaming Zipformer ASR")
     def load_model(self):
@@ -47,8 +48,28 @@ class SherpaONNXASRModel:
             sum(Path(path).stat().st_size for path in [encoder, decoder, joiner]) / (1024 * 1024),
         )
         self._recognizer = self._create_recognizer(encoder, decoder, joiner, tokens)
+        self._warn_if_provider_missing()
         self._reset_stream()
         logger.info("Sherpa-ONNX ASR loaded successfully.")
+
+    def _warn_if_provider_missing(self):
+        """Surface a silent execution-provider fallback.
+
+        sherpa-onnx does not report a failed CUDA initialisation in the logs:
+        when the bundled ``onnxruntime_providers_cuda.dll`` cannot be loaded it
+        quietly decodes on the CPU. That turns ``provider: cuda`` in config.yaml
+        into a lie and makes every latency measurement confusing, so say it out
+        loud (see ``_create_recognizer``, which records the failure).
+        """
+        if not self._provider_fallback_error:
+            return
+        logger.warning(
+            "ASR provider is configured as '{}' but the execution provider failed to "
+            "initialise ({}). sherpa-onnx has silently fallen back to the CPU, so "
+            "config.num_threads is what actually controls speed.",
+            self.config.provider,
+            self._provider_fallback_error,
+        )
 
     def _create_recognizer(self, encoder: str, decoder: str, joiner: str, tokens: str):
         if hasattr(self._sherpa_onnx.OnlineRecognizer, "from_transducer"):
@@ -65,10 +86,14 @@ class SherpaONNXASRModel:
                 enable_endpoint_detection=self.config.enable_endpoint_detection,
             )
             try:
-                return self._sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
-            except TypeError:
-                kwargs.pop("enable_endpoint_detection", None)
-                return self._sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+                try:
+                    return self._sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+                except TypeError:
+                    # Older sherpa-onnx builds do not accept endpoint detection.
+                    kwargs.pop("enable_endpoint_detection", None)
+                    return self._sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+            except RuntimeError as exc:
+                return self._retry_on_cpu(exc, kwargs)
 
         recognizer_config = self._sherpa_onnx.OnlineRecognizerConfig(
             transducer=self._sherpa_onnx.OnlineTransducerModelConfig(
@@ -85,6 +110,23 @@ class SherpaONNXASRModel:
             enable_endpoint_detection=self.config.enable_endpoint_detection,
         )
         return self._sherpa_onnx.OnlineRecognizer(recognizer_config)
+
+    def _retry_on_cpu(self, exc: RuntimeError, kwargs: dict):
+        """Rebuild the recognizer on the CPU after a failed GPU initialisation.
+
+        Without this, a broken CUDA provider aborts model loading; with it, the
+        service still starts, and ``_warn_if_provider_missing`` explains why it
+        is running slower than ``provider: cuda`` suggests.
+        """
+        self._provider_fallback_error = f"{type(exc).__name__}: {exc}".strip()
+        if str(self.config.provider).lower() in ("", "cpu"):
+            raise exc
+        logger.warning(
+            "Recognizer initialisation failed with provider '{}': {}. Retrying on CPU.",
+            self.config.provider,
+            exc,
+        )
+        return self._sherpa_onnx.OnlineRecognizer.from_transducer(**{**kwargs, "provider": "cpu"})
 
     def predict(self, query: ASRQuery) -> ASRPrediction:
         with open(query.audio_path, "rb") as file:

@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import io
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
-from pydub import AudioSegment
-from scipy.io import wavfile as wavfile
 from typeguard import typechecked
 
 from common.io.file_type import AudioFileType
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @typechecked
@@ -18,6 +20,8 @@ def get_audio_info(file: Path | str | bytes | BytesIO, type: str | None = None) 
     :param file: Audio file path.
     :return: sample_rate, num_channels, duration
     """
+    from pydub import AudioSegment
+
     if isinstance(file, bytes):
         file = BytesIO(file)
     if type is None:
@@ -86,6 +90,8 @@ def from_ndarray_to_bytes(speech_chunk, sample_rate):
     :param sample_rate: Sample rate of the speech chunk.
     :return:
     """
+    from scipy.io import wavfile
+
     wave_file = io.BytesIO()
     wavfile.write(filename=wave_file, rate=sample_rate, data=speech_chunk)
     return wave_file.getvalue()
@@ -99,6 +105,8 @@ def from_bytes_to_np_ndarray(bytes_data: bytes, dtype: str = "float32") -> (np.n
     :param dtype: Default is float32.
     :return: The converted np.ndarray format data, sample rate.
     """
+    import soundfile as sf
+
     wave_bytes_buf = io.BytesIO(bytes_data)
     data, samplerate = sf.read(wave_bytes_buf, dtype=dtype)
     return data, samplerate

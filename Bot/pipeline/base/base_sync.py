@@ -115,6 +115,8 @@ class CommonModelPipeline(PredictablePipeline):
 
 
 class AbstractImagePipeline(CommonModelPipeline):
+    _prediction_model = AbstractModelPrediction
+
     def __init__(self, config: any):
         super().__init__(config)
 
@@ -132,6 +134,11 @@ class AbstractImagePipeline(CommonModelPipeline):
             prediction = self.parse_stream_prediction(chunk)
             yield prediction
 
+    def parse_prediction(self, response: Response) -> AbstractModelPrediction:
+        content = response.content
+        assert content is not None, "The HTTP response body contains None content."
+        return self._prediction_model.model_validate_json(content)
+
     def _predict(self, query) -> Response:
         parsed_query = self.parse_query(query)
         response = None
@@ -139,8 +146,16 @@ class AbstractImagePipeline(CommonModelPipeline):
             response = requests.post(url=self.predict_url, json=query.model_dump())
         elif isinstance(parsed_query, tuple):
             files, data = parsed_query[0], parsed_query[1]
-            response = requests.post(url=self.predict_url, files=files, data=data)
-            del files, data
+            try:
+                response = requests.post(url=self.predict_url, files=files, data=data)
+            finally:
+                for file_obj in (files or {}).values():
+                    if hasattr(file_obj, "close"):
+                        try:
+                            file_obj.close()
+                        except Exception:
+                            pass
+                del files, data
 
         assert response is not None, "No response got, please check `parse_query`."
 

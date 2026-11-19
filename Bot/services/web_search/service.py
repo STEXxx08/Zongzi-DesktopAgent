@@ -1,5 +1,6 @@
 import json
 from condata.harness import record_protocol_error
+from functools import lru_cache
 import logging
 import re
 import threading
@@ -33,6 +34,23 @@ from services.tool_coordinator import ToolCoordinationStatus, ToolCoordinator
 from services.tool_model_gateway import compose_tool_instructions
 
 logger = logging.getLogger(__name__)
+
+_POLITENESS_PREFIX_RE = re.compile(
+    r"^(?:(?:请|麻烦|帮我|请你|你能不能|能不能|可以帮我|查一下|查查|看看|看一下|看下)\s*)+"
+)
+_POLITENESS_SUFFIX_RE = re.compile(r"(怎么样|怎样|如何|什么情况|情况如何|好吗|呢|呀|啊|吗)$")
+_TRAILING_DE_RE = re.compile(r"的$")
+_WHITESPACE_RE = re.compile(r"\s+")
+_QUERY_STRIP_CHARS = " 　，,。.!！?？:："
+
+
+@lru_cache(maxsize=16)
+def _directive_tag_pattern(marker: str) -> re.Pattern[str]:
+    escaped = re.escape(marker)
+    return re.compile(
+        rf"<{escaped}>\s*(\{{.*?\}})\s*</{escaped}>",
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 @dataclass
@@ -163,15 +181,9 @@ class CoreWebSearchProvider:
             self.tool_runtime.register(definition)
 
     def search(self, query: str) -> list[WebSearchResult]:
-        response = self._session.post(
-            self.config.endpoint,
-            json={"query": query},
-            timeout=self.config.timeout_seconds,
+        prediction = self._post_prediction(
+            self.config.endpoint, {"query": query}, WebSearchPrediction
         )
-        response.raise_for_status()
-        prediction = WebSearchPrediction.model_validate_json(response.content)
-        if prediction.error:
-            raise RuntimeError(prediction.error)
         return [
             WebSearchResult(
                 title=item.title,
@@ -182,15 +194,9 @@ class CoreWebSearchProvider:
         ]
 
     def weather(self, location: str) -> list[WebSearchResult]:
-        response = self._session.post(
-            self.config.weather.endpoint,
-            json={"location": location},
-            timeout=self.config.timeout_seconds,
+        prediction = self._post_prediction(
+            self.config.weather.endpoint, {"location": location}, WeatherPrediction
         )
-        response.raise_for_status()
-        prediction = WeatherPrediction.model_validate_json(response.content)
-        if prediction.error:
-            raise RuntimeError(prediction.error)
         return [WebSearchResult(
             title=f"{prediction.location or prediction.query}天气",
             url="https://open-meteo.com/",
@@ -431,14 +437,10 @@ class WebSearchService:
     @staticmethod
     def _remove_keyword_and_politeness(text: str, keyword: str) -> str:
         query = re.sub(re.escape(keyword), "", text, count=1, flags=re.IGNORECASE)
-        query = re.sub(
-            r"^(?:(?:请|麻烦|帮我|请你|你能不能|能不能|可以帮我|查一下|查查|看看|看一下|看下)\s*)+",
-            "",
-            query.strip(),
-        )
-        query = re.sub(r"(怎么样|怎样|如何|什么情况|情况如何|好吗|呢|呀|啊|吗)$", "", query.strip())
-        query = re.sub(r"的$", "", query.strip())
-        return query.strip(" 　，,。.!！?？:：")
+        query = _POLITENESS_PREFIX_RE.sub("", query.strip())
+        query = _POLITENESS_SUFFIX_RE.sub("", query.strip())
+        query = _TRAILING_DE_RE.sub("", query.strip())
+        return query.strip(_QUERY_STRIP_CHARS)
 
     def _build_route_directive(
         self,
@@ -461,7 +463,7 @@ class WebSearchService:
         except (KeyError, ValueError) as exc:
             logger.warning(f"路由“{route.name}”的查询模板无效：{exc}")
             query = query_value
-        query = re.sub(r"\s+", " ", query).strip(" 　，,。.!！?？:：")
+        query = _WHITESPACE_RE.sub(" ", query).strip(_QUERY_STRIP_CHARS)
         if not query and route.tool not in {"weather", "news"}:
             return None
         return LocalSearchDirective(
@@ -505,11 +507,7 @@ class WebSearchService:
         return compose_tool_instructions([section]) if include_common else section
 
     def parse_model_response(self, response: str) -> tuple[str, ModelSearchDirective | None]:
-        marker = re.escape(self.config.model_marker)
-        pattern = re.compile(
-            rf"<{marker}>\s*(\{{.*?\}})\s*</{marker}>",
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        pattern = _directive_tag_pattern(self.config.model_marker)
         match = pattern.search(response or "")
         if match is None:
             return response, None

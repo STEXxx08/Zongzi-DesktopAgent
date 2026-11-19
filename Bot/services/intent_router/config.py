@@ -1,9 +1,9 @@
 import logging
-from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
+
+from services.config_loader import load_service_subconfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,41 +34,10 @@ class IntentRouterConfig(BaseModel):
     intents: list[IntentDefinition] = Field(default_factory=list)
 
 
-def _plain(value: Any) -> dict | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if hasattr(value, "dict"):
-        return value.dict()
-    return None
-
-
-def _yaml_fallback() -> dict | None:
-    bot_config = Path(__file__).resolve().parents[2] / "config.yaml"
-    for path in (bot_config,):
-        if not path.exists():
-            continue
-        try:
-            with path.open("r", encoding="utf-8") as file:
-                root = yaml.safe_load(file) or {}
-            value = root.get("service", {}).get("intent_router")
-            if isinstance(value, dict):
-                return value
-        except Exception as exc:
-            logger.warning(f"Failed to load intent-router config from {path}: {exc}")
-    return None
-
-
 def load_intent_router_config(root_config: Any = None) -> IntentRouterConfig:
-    service = getattr(root_config, "service", None) if root_config is not None else None
-    raw = _plain(getattr(service, "intent_router", None))
-    if raw is None:
-        raw = _yaml_fallback()
-    try:
-        return IntentRouterConfig.model_validate(raw or {})
-    except Exception as exc:
-        logger.error(f"Invalid intent-router config; router disabled: {exc}")
-        return IntentRouterConfig()
+    return load_service_subconfig(
+        "intent_router",
+        IntentRouterConfig,
+        root_config,
+        label="intent-router",
+    )

@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "validate")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "validate", "plan")]
     [string]$Action = "start",
     [string]$Registry = "agent-stack/registry.json",
+    [string]$Config = "config.yaml",
     [string]$Service = "",
     [int]$StartupTimeoutSeconds = 0,
     [ValidateSet("auto", "tabs", "windows")]
@@ -24,6 +25,7 @@ $launcher = [scriptblock]::Create((Get-Content $sourcePath -Raw -Encoding UTF8))
 & $launcher `
     -Action $Action `
     -Registry $Registry `
+    -Config $Config `
     -Service $Service `
     -StartupTimeoutSeconds $StartupTimeoutSeconds `
     -TerminalMode $TerminalMode `

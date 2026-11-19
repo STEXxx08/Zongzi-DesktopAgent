@@ -1,11 +1,15 @@
 # ============================================================================
-# 可选服务 —— 都不参与默认部署（Core/agent-stack/registry.json 里没有登记）
-# 想用时再装，装到哪个环境由你自己决定。
+# 可选服务 —— 都不参与默认部署（Core/agent-stack/registry.json 里已登记，
+# 但 Core/config.yaml 的 Startup 段里默认 false），想用时再装，
+# 装到哪个环境由你自己决定。
 #
 #   服务      实现                      依赖文件
 #   ---------------------------------------------------------------------------
 #   img_cap   Core/img_cap/blip/         Core/img_cap/blip/requirements.txt
 #   ocr       Core/ocr/paddle/           Core/ocr/paddle/requirements.txt
+#
+#   启用方式：把 Core/config.yaml 的 Startup 段里对应项改成 true，
+#   或临时 `python agent_stack.py start --only imgcap`。
 #
 #   LLM 的几条可选路线（ollama / 本地大模型）见：
 #     Core/llm/ollama/requirements.txt

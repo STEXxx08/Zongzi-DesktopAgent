@@ -3,7 +3,7 @@ from typing import Literal
 from typeguard import typechecked
 from condata.pipeline.ocr import OCRQuery, OCRPrediction
 
-from pipeline.base.base_async import BaseAsyncPipeline, _parse_imgcap_query, get_base_url
+from pipeline.base.base_async import BaseAsyncPipeline, get_base_url
 from pipeline.ocr.config import OCRPipelineConfig
 
 
@@ -16,6 +16,4 @@ class OCRAsyncPipeline(BaseAsyncPipeline):
 
     @typechecked
     async def predict(self, query: OCRQuery) -> OCRPrediction:
-        data = _parse_imgcap_query(query)
-        async with self.session.post(self._predict_endpoint, data=data) as resp:
-            return await resp.json(encoding='utf8', loads=OCRPrediction.model_validate_json)
+        return await self._post_image_prediction(self._predict_endpoint, query, OCRPrediction)

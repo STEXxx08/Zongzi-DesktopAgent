@@ -1004,6 +1004,7 @@ def test_merge_keeps_pinned_segment_and_no_deletion_wording(tmp_dir):
     manager = MemoryManager(
         config=MemoryConfig(enable=True, data_dir=tmp_dir, async_save=False),
         llm_config=_permissive_config(),
+        clock=lambda: NOW,
     )
     manager._llm = llm
     manager._merge_llm = llm
@@ -1039,6 +1040,7 @@ def test_manager_extraction_reference_excludes_pinned(tmp_dir):
     manager = MemoryManager(
         config=MemoryConfig(enable=True, data_dir=tmp_dir, async_save=False),
         llm_config=_permissive_config(),
+        clock=lambda: NOW,
     )
     reference = manager.recent_reference_text()
     assert "长期一" in reference and "最近的事" in reference
@@ -1091,8 +1093,8 @@ def test_context_manager_neutralizes_memory_markers():
 
 
 def test_bot_memory_turn_helper_returns_block(tmp_dir):
-    """直接跑 bot 每轮真正调用的那个方法（不构造整个 Bot）。"""
-    from bot import Bot
+    """直接跑轮次编排器每轮真正调用的那个方法（不构造整个 Bot）。"""
+    from bot_turn_orchestrator import BotTurnOrchestrator
 
     archive_text = _archive(
         [("2026-10-15", ["今天的事"]), ("2026-06-01", ["很久以前的事"])],
@@ -1100,19 +1102,19 @@ def test_bot_memory_turn_helper_returns_block(tmp_dir):
         pinned=["标记一"],
     )
     retriever = _retriever(tmp_dir, archive_text, mode=MODE_OFF)
-    bot = Bot.__new__(Bot)
-    bot.memory_retriever = retriever
-    text = Bot._memory_context_for_turn(bot, "今天的事", allow_random=False)
+    orchestrator = BotTurnOrchestrator.__new__(BotTurnOrchestrator)
+    orchestrator._memory_retriever_provider = lambda: retriever
+    text = orchestrator._memory_context_for_turn("今天的事", allow_random=False)
     assert text and text.startswith(MEMORY_BLOCK_HEADER)
     assert "标记一" in text and "今天的事" in text
 
     # 记忆系统没初始化时不能抛异常
-    bot.memory_retriever = None
-    assert Bot._memory_context_for_turn(bot, "在吗", allow_random=True) is None
+    orchestrator._memory_retriever_provider = lambda: None
+    assert orchestrator._memory_context_for_turn("在吗", allow_random=True) is None
 
 
 def test_bot_no_longer_injects_memory_into_system_prompt():
-    source = (_BOT_DIR / "bot.py").read_text(encoding="utf-8")
+    source = (_BOT_DIR / "bot_turn_orchestrator.py").read_text(encoding="utf-8")
     assert "关于用户的长期记忆" not in source
     assert "memory_context=self._memory_context_for_turn(" in source
     # 记忆块必须进当轮用户消息，不许往 history 里插一条记忆消息

@@ -15,13 +15,13 @@
 > | `uv sync` / `uv run starter.py …` | **不用 uv**。各服务跑在各自的 conda 环境里，用 `agent-stack.cmd start` 一键拉起 |
 > | 依赖 `zerolan-data`（外部包） | 已改为本地源码包 **`con-datapack`**（导入名 `condata`），需 `pip install -e con-datapack-1.11`；各模型目录的 `pyproject.toml` 已指向该本地路径 |
 > | 目录树里的 `uv.lock` | 已删除（原本锁定的是废弃的外部包），需要时自行 `uv lock` 重新生成 |
-> | 只登记 4 个服务、web_search 需单独启动 | `registry.json` 现登记 **5 个**服务，web_search 已入册（11012） |
+> | 只登记 4 个服务、web_search 需单独启动 | `registry.json` 现登记 **9 个**服务，web_search 已入册（11012）；**具体启动哪些由 `Core/config.yaml` 顶部的 `Startup` 段决定**（默认开 asr / llm / tts / llm-memory / web_search，mllm / mllm-memory / ocr / imgcap 默认 false），两个启动器都读这一段 |
 > | 仅 Linux / Ubuntu 教程 | 本项目实际在 **Windows** 上开发验证 |
 > | 提到需克隆外部 GPT-SoVITS 仓库 | 本项目已内嵌 [`GPT-SoVITS/`](GPT-SoVITS/) 副本，见其 [SOURCE.md](GPT-SoVITS/SOURCE.md) |
 >
 > 正文的模型清单与接口样例仍有参考价值（注意端口/路径可能已变），其余请自行甄别。
 
-![Static Badge](https://img.shields.io/badge/Python-3.1x-blue) ![Static Badge](https://img.shields.io/badge/LLM-purple) ![Static Badge](https://img.shields.io/badge/ASR-purple) ![Static Badge](https://img.shields.io/badge/TTS-purple) ![Static Badge](https://img.shields.io/badge/OCR-purple) ![Static Badge](https://img.shields.io/badge/Image%20Captioning-purple) ![Static Badge](https://img.shields.io/badge/Video%20Captioning-purple) ![Static Badge](https://img.shields.io/badge/VLA-purple) ![Static Badge](https://img.shields.io/badge/License-MIT-orange) ![Static Badge](https://img.shields.io/badge/ver-0.5-green) 
+![Static Badge](https://img.shields.io/badge/Python-3.1x-blue) ![Static Badge](https://img.shields.io/badge/LLM-purple) ![Static Badge](https://img.shields.io/badge/ASR-purple) ![Static Badge](https://img.shields.io/badge/TTS-purple) ![Static Badge](https://img.shields.io/badge/OCR-purple) ![Static Badge](https://img.shields.io/badge/Image%20Captioning-purple) ![Static Badge](https://img.shields.io/badge/Video%20Captioning-purple) ![Static Badge](https://img.shields.io/badge/VLA-purple) ![Static Badge](https://img.shields.io/badge/License-MIT-orange) ![Static Badge](https://img.shields.io/badge/ver-1.4-green) 
 
 ZerolanCore 集成了众多开源的、可本地部署的人工智能模型或服务，旨在使用统一的管线设计封装大语言模型（LLM）、自动语音识别（ASR）、文本转语音（TTS）、图像字幕（Image Captioning）、光学字符识别（OCR）、视频字幕（Video Captioning）等一系列的人工智能模型，并可以使用统一的配置文件和服务启动器快速部署和启动 AI 服务。
 

@@ -1,6 +1,5 @@
 from typing import List
 
-from requests import Response
 from condata.pipeline.ocr import OCRQuery, OCRPrediction, RegionResult
 
 from pipeline.base.base_sync import AbstractImagePipeline
@@ -8,6 +7,7 @@ from pipeline.ocr.config import OCRPipelineConfig
 
 
 class OCRSyncPipeline(AbstractImagePipeline):
+    _prediction_model = OCRPrediction
 
     def __init__(self, config: OCRPipelineConfig):
         super().__init__(config)
@@ -19,13 +19,6 @@ class OCRSyncPipeline(AbstractImagePipeline):
     def stream_predict(self, query: OCRQuery, chunk_size: int | None = None):
         assert isinstance(query, OCRQuery)
         raise NotImplementedError()
-
-    def parse_query(self, query: any) -> dict:
-        return super().parse_query(query)
-
-    def parse_prediction(self, response: Response) -> OCRPrediction:
-        json_val = response.content
-        return OCRPrediction.model_validate_json(json_val)
 
 
 def avg_confidence(p: OCRPrediction) -> float:

@@ -65,6 +65,14 @@ class LLMPromptManager:
             # 出现非 bot_name 的占位符或落单大括号时原样返回，别让配置文本打死流程
             return content
         
+    @staticmethod
+    def _replace_system_in_list(history_list: list[Conversation], new_prompt: str) -> None:
+        for conv in history_list:
+            if conv.role == RoleEnum.system:
+                conv.content = new_prompt
+                return
+        history_list.insert(0, Conversation(role=RoleEnum.system, content=new_prompt))
+
     def replace_system_prompt(self, new_prompt: str) -> None:
         """
         替换 injected_history 和 current_history 中的 system 角色消息。
@@ -72,30 +80,9 @@ class LLMPromptManager:
         用于注入长期记忆
         """
         with self._lock:
-            # 更新 system_prompt 属性
             self.system_prompt = new_prompt
-
-            # 替换 injected_history
-            found = False
-            for conv in self.injected_history:
-                if conv.role == RoleEnum.system:
-                    conv.content = new_prompt
-                    found = True
-                    break
-            if not found:
-                # 如果没有 system 消息（通常不会），插入到最前面
-                self.injected_history.insert(0, Conversation(role=RoleEnum.system, content=new_prompt))
-
-            # 替换 current_history（同样逻辑）
-            found = False
-            for conv in self.current_history:
-                if conv.role == RoleEnum.system:
-                    conv.content = new_prompt
-                    found = True
-                    break
-            if not found:
-                # 如果没有，插入到最前面
-                self.current_history.insert(0, Conversation(role=RoleEnum.system, content=new_prompt))
+            self._replace_system_in_list(self.injected_history, new_prompt)
+            self._replace_system_in_list(self.current_history, new_prompt)
         
     def update_history(self, new_history: list[Conversation]) -> None:
         """

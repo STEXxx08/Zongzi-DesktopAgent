@@ -5,7 +5,6 @@ import requests
 from typeguard import typechecked
 from condata.pipeline.asr import ASRQuery, ASRPrediction, ASRStreamQuery
 
-from pipeline.asr.baidu_asr import BaiduASRPipeline
 from pipeline.asr.config import ASRPipelineConfig, MODEL_ID_BAIDU
 from pipeline.base.base_sync import CommonModelPipeline
 
@@ -20,17 +19,33 @@ class ASRSyncPipeline(CommonModelPipeline):
         super().__init__(config)
         model_id = getattr(config.model_id, "value", config.model_id)
         if model_id == MODEL_ID_BAIDU and config.baidu_asr_config is not None:
+            from pipeline.asr.baidu_asr import BaiduASRPipeline
+
             baidu = BaiduASRPipeline(api_key=config.baidu_asr_config.api_key,
                                      secret_key=config.baidu_asr_config.secret_key)
             self.predict = baidu.predict
             self.stream_predict = baidu.stream_predict
 
+    @staticmethod
+    def _close_files(files: dict | None) -> None:
+        if not files:
+            return
+        for file_obj in files.values():
+            if hasattr(file_obj, "close"):
+                try:
+                    file_obj.close()
+                except Exception:
+                    pass
+
     @typechecked
     def predict(self, query: ASRQuery) -> ASRPrediction | None:
         assert isinstance(query, ASRQuery)
         files, data = self.parse_query(query)
-        response = requests.post(url=self.predict_url, files=files, data=data,
-                                 timeout=ASR_REQUEST_TIMEOUT_SECONDS)
+        try:
+            response = requests.post(url=self.predict_url, files=files, data=data,
+                                     timeout=ASR_REQUEST_TIMEOUT_SECONDS)
+        finally:
+            self._close_files(files)
 
         response.raise_for_status()
         prediction = self.parse_prediction(response.content)
@@ -41,8 +56,11 @@ class ASRSyncPipeline(CommonModelPipeline):
         ASRPrediction, None, None]:
         assert isinstance(query, ASRStreamQuery)
         files, data = self.parse_query(query)
-        response = requests.post(url=self.stream_predict_url, files=files, data=data,
-                                 timeout=ASR_REQUEST_TIMEOUT_SECONDS)
+        try:
+            response = requests.post(url=self.stream_predict_url, files=files, data=data,
+                                     timeout=ASR_REQUEST_TIMEOUT_SECONDS)
+        finally:
+            self._close_files(files)
         response.raise_for_status()
 
         if not response.content:

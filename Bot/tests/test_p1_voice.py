@@ -197,9 +197,9 @@ def test_microphone_shutdown_releases_audio_device():
 
 def _policy_bot(reset_default: bool):
     """用未初始化的实例测策略函数，避免拉起整个 Bot。"""
-    from bot import Bot
+    from bot_asr_controller import BotASRController
 
-    stub = Bot.__new__(Bot)
+    stub = BotASRController.__new__(BotASRController)
     stub._reset_remote_after_turn = reset_default
     return stub
 
@@ -207,22 +207,22 @@ def _policy_bot(reset_default: bool):
 def test_turn_commit_resets_remote_by_default():
     stub = _policy_bot(True)
     # 不显式传参 -> 走默认策略（提交即重置，避免下一轮从同一条远端流取回旧文本）
-    assert stub._should_reset_remote(None) is True
+    assert stub.should_reset_remote(None) is True
     # 显式传 False 仍然尊重调用方
-    assert stub._should_reset_remote(False) is False
-    assert stub._should_reset_remote(True) is True
+    assert stub.should_reset_remote(False) is False
+    assert stub.should_reset_remote(True) is True
 
     disabled = _policy_bot(False)
-    assert disabled._should_reset_remote(None) is False
+    assert disabled.should_reset_remote(None) is False
 
 
 # --------------------------------------------------------------------------- P1-16
 
 
 def _guard_stub(processing: bool, active: bool, age_seconds: float):
-    from bot import Bot
+    from bot_asr_controller import BotASRController
 
-    stub = Bot.__new__(Bot)
+    stub = BotASRController.__new__(BotASRController)
     stub._mic_processing = processing
     stub._mic_processing_lock = threading.Lock()
     stub._mic_utterance_active = active
@@ -233,16 +233,16 @@ def _guard_stub(processing: bool, active: bool, age_seconds: float):
 
 def test_desktop_asr_yields_while_mic_utterance_active():
     # 单块正在处理 -> 让路
-    assert _guard_stub(processing=True, active=False, age_seconds=0)._desktop_asr_allowed() is False
+    assert _guard_stub(processing=True, active=False, age_seconds=0).desktop_asr_allowed() is False
     # 块间空隙但本轮语音未结束 -> 仍然让路（旧实现这里会放行）
-    assert _guard_stub(processing=False, active=True, age_seconds=0.2)._desktop_asr_allowed() is False
+    assert _guard_stub(processing=False, active=True, age_seconds=0.2).desktop_asr_allowed() is False
     # 空闲 -> 放行
-    assert _guard_stub(processing=False, active=False, age_seconds=0)._desktop_asr_allowed() is True
+    assert _guard_stub(processing=False, active=False, age_seconds=0).desktop_asr_allowed() is True
 
 
 def test_desktop_asr_recovers_after_stale_utterance():
     stub = _guard_stub(processing=False, active=True, age_seconds=120)
-    assert stub._desktop_asr_allowed() is True
+    assert stub.desktop_asr_allowed() is True
     assert stub._mic_utterance_active is False
 
 
@@ -355,3 +355,79 @@ def test_default_queue_limits_are_finite():
 
     assert AsyncTaskExecutor().max_queue > 0
     assert SyncTaskExecutor().max_queue > 0
+
+
+# --------------------------------------------------------------------------- TurnSense / Desktop ASR / VLM 异步回调回归
+
+
+def test_turnsense_process_audio_logits_supports_unnormalized_2d_logits():
+    from pipeline.asr.turnsense import TurnSenseDetector
+
+    raw_logits = np.array([[2.0, 1.0, 0.1], [-1.0, 3.0, 0.5]], dtype=np.float32)
+    probs_2d, preds = TurnSenseDetector._process_audio_logits(raw_logits)
+
+    assert probs_2d.shape == (2, 3)
+    assert np.allclose(probs_2d.sum(axis=1), 1.0, atol=1e-5)
+    assert list(preds) == [0, 1]
+
+
+def test_desktop_asr_buffer_thread_safe_append_and_take():
+    from bot_asr_controller import BotASRController
+
+    stub = BotASRController.__new__(BotASRController)
+    stub.desktop_asr_buffer = []
+    stub._desktop_asr_lock = threading.Lock()
+    stub.max_desktop_sentences = 3
+
+    for idx in range(5):
+        stub.append_desktop_asr(f"句{idx}")
+
+    assert stub.take_desktop_asr_text() == "句2。句3。句4"
+    assert stub.desktop_asr_buffer == []
+    assert stub.take_desktop_asr_text() == ""
+
+
+def test_vlm_async_predict_invokes_callback_once_and_resets_running_on_error(tmp_path):
+    from bot_vision_controller import BotVisionController
+
+    img1 = tmp_path / "ok.png"
+    img1.write_bytes(b"png")
+    callbacks = []
+    done = threading.Event()
+
+    class _OkVLM:
+        def predict(self, query):
+            return "画面正常"
+
+    vlm_ref = [_OkVLM()]
+    controller = BotVisionController(
+        config_provider=lambda: None,
+        vlm_provider=lambda: vlm_ref[0],
+        ocr_provider=lambda: None,
+        img_cap_provider=lambda: None,
+        screen_provider=lambda: None,
+        lang_provider=lambda: None,
+        on_trigger_turn=lambda *a, **kw: None,
+    )
+    assert controller.async_predict(str(img1), lambda cap: (callbacks.append(cap), done.set())) is True
+    assert done.wait(timeout=2.0)
+    assert callbacks == ["画面正常"]
+    assert controller._vlm_running is False
+    assert not img1.exists()
+
+    img2 = tmp_path / "fail.png"
+    img2.write_bytes(b"png")
+    fail_callbacks = []
+    fail_done = threading.Event()
+
+    class _BoomVLM:
+        def predict(self, query):
+            raise RuntimeError("VLM error")
+
+    vlm_ref[0] = _BoomVLM()
+    assert controller.async_predict(str(img2), lambda cap: (fail_callbacks.append(cap), fail_done.set())) is True
+    assert fail_done.wait(timeout=2.0)
+    assert fail_callbacks == [None]
+    assert controller._vlm_running is False
+    assert not img2.exists()
+

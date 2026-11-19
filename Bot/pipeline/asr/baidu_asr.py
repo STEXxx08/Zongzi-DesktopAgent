@@ -5,9 +5,7 @@ import uuid
 from io import BytesIO
 from typing import List, Generator
 
-import librosa
 import requests
-import soundfile as sf
 from pydantic import BaseModel
 from typeguard import typechecked
 from condata.pipeline.asr import ASRQuery, ASRPrediction, ASRStreamQuery
@@ -37,6 +35,9 @@ class BaiduASRPipeline:
         url = "https://vop.baidu.com/server_api"
 
         if query.channels > 1:
+            import librosa
+            import soundfile as sf
+
             data, sr = librosa.load(query.audio_path, mono=True)
             memory_file = BytesIO()
             sf.write(memory_file, data, sr, format=query.media_type)

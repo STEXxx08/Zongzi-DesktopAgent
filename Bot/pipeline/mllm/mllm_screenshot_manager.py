@@ -1,13 +1,11 @@
 import os
 import threading
-from PIL import Image
 from typing import List, Optional
 
 from loguru import logger
-from common.utils.img_util import is_image_uniform
 from manager.config_manager import get_config
 
-_config = get_config().pipeline.mllm
+
 class MLLMScreenshotManager:
     def __init__(self, screen, interval: float, max_queue_size: int):
         self._screen = screen
@@ -29,6 +27,7 @@ class MLLMScreenshotManager:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=2)
+            self._thread = None
         with self._lock:
             for path in self._queue:
                 try:
@@ -38,6 +37,9 @@ class MLLMScreenshotManager:
             self._queue.clear()
 
     def _run(self):
+        from PIL import Image
+        from common.utils.img_util import is_image_uniform
+
         while not self._stop_event.is_set():
             try:
                 img, save_path = self._screen.safe_capture(k=0.99)
@@ -45,8 +47,9 @@ class MLLMScreenshotManager:
                     self._stop_event.wait(self._interval)
                     continue
                 if img and not is_image_uniform(img):
-                    # 压缩图片：长边不超过_config.screenshot_definition像素，保存为WEBP格式
-                    img.thumbnail((_config.screenshot_definition, _config.screenshot_definition), Image.Resampling.LANCZOS)  # 高质量缩放
+                    # 压缩图片：长边不超过 screenshot_definition 像素，保存为 WEBP 格式
+                    max_edge = get_config().pipeline.mllm.screenshot_definition
+                    img.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)  # 高质量缩放
                     # 生成新的文件路径（替换扩展名为 .webp）
                     webp_path = str(save_path).rsplit('.', 1)[0] + '.webp'
                     img.save(webp_path, format='WEBP', quality=85)  # quality=85 平衡体积与画质

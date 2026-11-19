@@ -56,6 +56,15 @@ class TurnSenseConfig(BaseModel):
     onnx_model: str = Field(default="model_int8.onnx", description="ONNX model filename relative to model_path.")
     onnx_provider: str = Field(default="CPUExecutionProvider", description="ONNX Runtime execution provider.")
     max_length: int = Field(default=256, ge=8, description="Max tokenizer length for TurnSense text classification.")
+    window_audio_sec: float = Field(default=4.0, ge=0.0,
+                                    description="Sliding window (seconds) of recent audio fed to TurnSense per candidate "
+                                                "chunk. The endpoint decision does not need the whole utterance, while "
+                                                "the cost grows with its length (measured: 0.5 s -> 34 ms, 6 s -> 102 ms, "
+                                                "8 s -> 137 ms per 0.24 s chunk), so the window caps the per-chunk "
+                                                "overhead on long utterances. `0` disables the window (feed everything, "
+                                                "the old behaviour). Note: this only bounds what TurnSense sees; the "
+                                                "total spoken duration used by the TTS barge-in threshold is tracked "
+                                                "separately and is unaffected.")
     api_url: str = Field(default="", description="Optional HTTP endpoint returning complete/incomplete/invalid.")
     timeout: float = Field(default=0.8, ge=0.1, description="Pause timeout for flushing microphone candidate audio chunks.")
     final_timeout: float = Field(default=0.8, ge=0.1, description="Delay after TurnSense predicts complete before final LLM commit.")

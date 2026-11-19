@@ -7,7 +7,7 @@ import copy
 from typing import Any
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, TextIteratorStreamer
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 
 from common.abs_model import AbstractModel
 from common.decorator import log_model_loading
@@ -19,7 +19,6 @@ class Shisa7B_V1(AbstractModel):
 
     def __init__(self, config: ShisaModelConfig):
         super().__init__()
-        self._s_streamer = None
         self.model_id = "augmxnt/shisa-7b-v1"
         self._model_path = config.model_path
         self._device = config.device
@@ -40,7 +39,6 @@ class Shisa7B_V1(AbstractModel):
             torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
         ).to(self._device)
         self._streamer = TextStreamer(self._tokenizer, skip_prompt=True)
-        self._s_streamer = TextIteratorStreamer(self._tokenizer, skip_prompt=True)
         assert self._tokenizer and self._model and self._streamer
 
     def predict(self, llm_query: LLMQuery) -> LLMPrediction:

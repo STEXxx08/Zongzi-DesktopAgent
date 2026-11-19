@@ -305,6 +305,39 @@ class MemoryRetriever:
 
         self.reload()
 
+    def update_config(
+        self,
+        config: RetrievalConfig,
+        injection_max_chars: int | None = None,
+    ) -> None:
+        """热重载记忆检索配置与注入字数上限，并在切入 `on` 模式时触发索引校验。"""
+        new_config = config.normalized() if hasattr(config, "normalized") else config
+        need_startup_check = False
+        with self._lock:
+            old_config = self.config
+            embedder_changed = (
+                old_config.model_path != new_config.model_path
+                or old_config.onnx_model != new_config.onnx_model
+                or old_config.providers != new_config.providers
+                or old_config.max_length != new_config.max_length
+                or old_config.intra_op_threads != new_config.intra_op_threads
+                or old_config.inter_op_threads != new_config.inter_op_threads
+            )
+            self.config = new_config
+            if injection_max_chars is not None:
+                self.injection_max_chars = int(injection_max_chars)
+            self._embedder_error = None
+            self._embedder_retry_at = 0.0
+            self._embedder_backoff = float(new_config.retry_initial_seconds)
+            if embedder_changed and self._embedder_factory is not None:
+                self._embedder = None
+            if new_config.mode == MODE_ON and (
+                old_config.mode != MODE_ON or not self._index_ready
+            ):
+                need_startup_check = True
+        if need_startup_check:
+            self.startup_check()
+
     # ---------------------------------------------------------------- 档案读写
 
     def reload(self) -> bool:

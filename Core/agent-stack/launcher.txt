@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "validate")]
+    [ValidateSet("start", "stop", "restart", "status", "logs", "validate", "plan")]
     [string]$Action = "start",
     [string]$Registry = "agent-stack.registry.json",
+    [string]$Config = "config.yaml",
     [string]$Service = "",
     [int]$StartupTimeoutSeconds = 0,
     [ValidateSet("auto", "tabs", "windows")]
@@ -25,6 +26,9 @@ $script:StateFile = $null
 $script:CombinedLogFile = $null
 $script:ServiceHostScript = $null
 $script:EffectiveTerminalMode = $null
+$script:StartupFlags = @{}
+$script:ConfigPath = $null
+$script:ConfigNotes = @()
 $script:State = @()
 
 function Resolve-ProjectPath([string]$Path) {
@@ -132,10 +136,106 @@ function Initialize-Runtime {
     else {
         $script:EffectiveTerminalMode = "windows"
     }
+
+    $script:ConfigPath = Resolve-ProjectPath $Config
+    $script:StartupFlags = Get-StartupFlags
+    foreach ($note in $script:ConfigNotes) {
+        Write-Warning $note
+    }
+}
+
+function Get-StartupFlags {
+    # Reads the dedicated `Startup:` block of Core/config.yaml: a flat
+    # service-name -> true/false mapping. This is a line scanner on purpose --
+    # PowerShell has no YAML parser, and agent_stack.py implements exactly the
+    # same rules (read_startup_flags), so both launchers agree without PyYAML.
+    $path = Resolve-ProjectPath $Config
+    $flags = @{}
+    if (-not (Test-Path $path -PathType Leaf)) {
+        $script:ConfigNotes += "config file not found: $path (falling back to registry 'enabled')"
+        return $flags
+    }
+    $inside = $false
+    $seenSection = $false
+    $lineNumber = 0
+    foreach ($raw in Get-Content $path -Encoding UTF8) {
+        $lineNumber++
+        $line = $raw.TrimEnd()
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
+        if ($line -notmatch '^\s') {
+            $inside = ($line -match '^Startup:\s*(#.*)?$')
+            if ($inside) { $seenSection = $true }
+            continue
+        }
+        if (-not $inside) { continue }
+        if ($line -match '^\s+([A-Za-z0-9_.-]+):\s*([^#]*?)\s*(#.*)?$') {
+            $name = $Matches[1]
+            $value = $Matches[2].Trim().Trim('"').Trim("'").ToLower()
+            if (@("true", "yes", "on", "1") -contains $value) {
+                $flags[$name] = $true
+            }
+            elseif (@("false", "no", "off", "0") -contains $value) {
+                $flags[$name] = $false
+            }
+            else {
+                $script:ConfigNotes += "$(Split-Path $path -Leaf):${lineNumber}: '$name' has a non-boolean value '$value'"
+            }
+        }
+        else {
+            $script:ConfigNotes += "$(Split-Path $path -Leaf):${lineNumber}: cannot parse '$trimmed', expected '<service>: true|false'"
+        }
+    }
+    if (-not $seenSection) {
+        $script:ConfigNotes += "no 'Startup:' block in $path (falling back to registry 'enabled')"
+    }
+    return $flags
+}
+
+function Get-ServiceEnabled($Definition) {
+    # config.yaml Startup.<service> wins; otherwise the registry's own `enabled`.
+    $name = [string]$Definition.name
+    if ($script:StartupFlags.ContainsKey($name)) {
+        return [pscustomobject]@{
+            Enabled = [bool]$script:StartupFlags[$name]
+            Source  = "$(Split-Path $script:ConfigPath -Leaf) Startup.$name"
+        }
+    }
+    $enabled = ($Definition.enabled -ne $false)
+    return [pscustomobject]@{
+        Enabled = $enabled
+        Source  = "registry enabled=$($enabled.ToString().ToLower())"
+    }
 }
 
 function Get-Services {
-    return @($script:Data.services | Where-Object { $_.enabled -ne $false })
+    return @($script:Data.services | Where-Object { (Get-ServiceEnabled $_).Enabled })
+}
+
+function Show-StartupSwitches {
+    Write-Host "Startup switches from $($script:ConfigPath):"
+    foreach ($definition in @($script:Data.services)) {
+        $state = Get-ServiceEnabled $definition
+        $label = if ($state.Enabled) { "on " } else { "off" }
+        Write-Host ("  {0,-13} {1}  ({2})" -f [string]$definition.name, $label, $state.Source)
+    }
+    Write-Host ""
+}
+
+function Assert-NoPortConflicts([array]$Definitions) {
+    # llm/mllm (11000) and llm-memory/mllm-memory (10010) are mutually exclusive:
+    # letting both through only surfaces later as a cryptic bind failure.
+    $seen = @{}
+    foreach ($definition in $Definitions) {
+        if (-not $definition.health -or $definition.health.type -ne "tcp" -or -not $definition.health.port) {
+            continue
+        }
+        $port = [int]$definition.health.port
+        if ($seen.ContainsKey($port)) {
+            throw ("Services '{0}' and '{1}' would both listen on port {2}. Turn one of them off in the Startup block of config.yaml (or in registry.json's ""enabled"")." -f $seen[$port], [string]$definition.name, $port)
+        }
+        $seen[$port] = [string]$definition.name
+    }
 }
 
 function Read-State {
@@ -662,6 +762,12 @@ function Show-OptionalDependencyStatus {
 function Start-All {
     $script:State = @(Read-State)
     $services = @(Get-Services)
+    Assert-NoPortConflicts $services
+    if ($services.Count -eq 0) {
+        throw "Nothing to start: the effective service set is empty. Check the Startup block in $($script:ConfigPath)."
+    }
+    $names = ($services | ForEach-Object { [string]$_.name }) -join ", "
+    Write-Host "Starting: $names"
     $running = @($script:State | Where-Object {
         ($_.runner -in @("conda", "process") -and (Test-ProcessRunning ([int]$_.pid))) -or
         ($_.runner -eq "wsl-systemd" -and (Test-WslUnit ([string]$_.distro) ([string]$_.unit)))
@@ -699,7 +805,7 @@ function Start-All {
             Wait-Group $group
         }
         Write-Host ""
-        Write-Host "All enabled registry services are running."
+        Write-Host "All $($services.Count) selected service(s) are running."
     }
     catch {
         Write-Warning $_
@@ -748,6 +854,21 @@ function Show-Logs {
     }
 }
 
+function Show-Plan {
+    # `plan`: print what `start` would launch here, without touching anything.
+    $services = @(Get-Services)
+    Assert-NoPortConflicts $services
+    Show-StartupSwitches
+    Write-Host "Effective startup set: $($services.Count) service(s)"
+    Write-Host ("  {0,-13} {1,-6} {2,-8} {3,-24} {4}" -f "name", "port", "runner", "environment", "command")
+    foreach ($definition in @($services | Sort-Object { if ($null -eq $_.start_order) { 100 } else { [int]$_.start_order } }, name)) {
+        $port = if ($definition.health -and $definition.health.type -eq "tcp") { [string]$definition.health.port } else { "-" }
+        $environment = if ($definition.environment) { [string]$definition.environment } else { "-" }
+        $command = (@([string]$definition.command) + @($definition.arguments | ForEach-Object { [string]$_ })) -join " "
+        Write-Host ("  {0,-13} {1,-6} {2,-8} {3,-24} {4}" -f [string]$definition.name, $port, [string]$definition.runner, $environment, $command)
+    }
+}
+
 $script:Data = Read-Registry
 Initialize-Runtime
 
@@ -760,9 +881,12 @@ switch ($Action) {
     }
     "status" { Show-Status }
     "logs" { Show-Logs }
+    "plan" { Show-Plan }
     "validate" {
-        $count = @(Get-Services).Count
+        $services = @(Get-Services)
+        Assert-NoPortConflicts $services
+        Show-StartupSwitches
         $dependencyCount = @(Get-OptionalDependencies).Count
-        Write-Host "Registry is valid: $count enabled service(s), $dependencyCount optional dependency(ies)."
+        Write-Host "Registry is valid: $($services.Count) service(s) to start, $dependencyCount optional dependency(ies)."
     }
 }

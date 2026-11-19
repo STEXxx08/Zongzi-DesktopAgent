@@ -54,7 +54,6 @@ class OCRApplication(AbstractApplication):
                 mimetype='application/json',
                 headers={'Content-Type': 'application/json; charset=utf-8'}
             )
-            return jsonify(prediction.model_dump())
 
         @self._app.route("/ocr/stream-predict", methods=["POST"])
         def _handle_stream_predict():

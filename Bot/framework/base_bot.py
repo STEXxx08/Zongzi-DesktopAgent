@@ -2,79 +2,56 @@ from loguru import logger
 
 from framework.context import BotContext
 from manager.config_manager import get_config
-from pipeline.asr.asr_async import ASRAsyncPipeline
-from pipeline.asr.asr_sync import ASRSyncPipeline
-from pipeline.imgcap.imgcap_async import ImgCapAsyncPipeline
-from pipeline.imgcap.imgcap_sync import ImgCapSyncPipeline
-from pipeline.llm.llm_async import LLMAsyncPipeline
-from pipeline.llm.llm_sync import LLMSyncPipeline
-from pipeline.ocr.ocr_async import OCRAsyncPipeline
-from pipeline.ocr.ocr_sync import OCRSyncPipeline
-from pipeline.tts.tts_async import TTSAsyncPipeline
-from pipeline.tts.tts_sync import TTSSyncPipeline
 
 
 class BaseBot(BotContext):
     def __init__(self):
         super().__init__()
 
+    def _reload_pipeline_attr(
+        self,
+        attr_name: str,
+        enabled: bool,
+        pipeline_cfg,
+        sync_cls,
+        async_cls,
+    ) -> None:
+        current = getattr(self, attr_name, None)
+        if not enabled:
+            setattr(self, attr_name, None)
+            return
+        if current is None:
+            logger.warning(f"Pipeline {attr_name} will not reload because it has not been established.")
+            return
+        if isinstance(current, sync_cls):
+            setattr(self, attr_name, sync_cls(pipeline_cfg))
+        elif isinstance(current, async_cls):
+            setattr(self, attr_name, async_cls(pipeline_cfg))
+        else:
+            logger.error(f"Unsupported pipeline type: {type(current)}")
+
     def reload_pipeline(self):
+        from pipeline.asr.asr_async import ASRAsyncPipeline
+        from pipeline.asr.asr_sync import ASRSyncPipeline
+        from pipeline.imgcap.imgcap_async import ImgCapAsyncPipeline
+        from pipeline.imgcap.imgcap_sync import ImgCapSyncPipeline
+        from pipeline.llm.llm_async import LLMAsyncPipeline
+        from pipeline.llm.llm_sync import LLMSyncPipeline
+        from pipeline.ocr.ocr_async import OCRAsyncPipeline
+        from pipeline.ocr.ocr_sync import OCRSyncPipeline
+        from pipeline.tts.tts_async import TTSAsyncPipeline
+        from pipeline.tts.tts_sync import TTSSyncPipeline
+
         config = get_config()
-
-        # ASR Pipeline
-        if self.asr is not None:
-            if isinstance(self.asr, ASRSyncPipeline):
-                self.asr = ASRSyncPipeline(config.pipeline.asr)
-            elif isinstance(self.asr, ASRAsyncPipeline):
-                self.asr = ASRAsyncPipeline(config.pipeline.asr)
-            else:
-                logger.error(f"Unsupported pipeline type: {type(self.asr)}")
-        else:
-            logger.warning("Pipeline asr will not reload because it has not been established.")
-
-        # Image Captioning Pipeline
-        if self.img_cap is not None:
-            if isinstance(self.img_cap, ImgCapSyncPipeline):
-                self.img_cap = ImgCapSyncPipeline(config.pipeline.img_cap)
-            elif isinstance(self.img_cap, ImgCapAsyncPipeline):
-                self.img_cap = ImgCapAsyncPipeline(config.pipeline.img_cap)
-            else:
-                logger.error(f"Unsupported pipeline type: {type(self.img_cap)}")
-        else:
-            logger.warning("Pipeline img_cap will not reload because it has not been established.")
-
-        # LLM Pipeline
-        if self.llm is not None:
-            if isinstance(self.llm, LLMSyncPipeline):
-                self.llm = LLMSyncPipeline(config.pipeline.llm)
-            elif isinstance(self.llm, LLMAsyncPipeline):
-                self.llm = LLMAsyncPipeline(config.pipeline.llm)
-            else:
-                logger.error(f"Unsupported pipeline type: {type(self.llm)}")
-        else:
-            logger.warning("Pipeline llm will not reload because it has not been established.")
-
-        # OCR Pipeline
-        if self.ocr is not None:
-            if isinstance(self.ocr, OCRSyncPipeline):
-                self.ocr = OCRSyncPipeline(config.pipeline.ocr)
-            elif isinstance(self.ocr, OCRAsyncPipeline):
-                self.ocr = OCRAsyncPipeline(config.pipeline.ocr)
-            else:
-                logger.error(f"Unsupported pipeline type: {type(self.ocr)}")
-        else:
-            logger.warning("Pipeline ocr will not reload because it has not been established.")
-
-        # TTS Pipeline
-        if self.tts is not None:
-            if isinstance(self.tts, TTSSyncPipeline):
-                self.tts = TTSSyncPipeline(config.pipeline.tts)
-            elif isinstance(self.tts, TTSAsyncPipeline):
-                self.tts = TTSAsyncPipeline(config.pipeline.tts)
-            else:
-                logger.error(f"Unsupported pipeline type: {type(self.tts)}")
-        else:
-            logger.warning("Pipeline tts will not reload because it has not been established.")
+        specs = (
+            ("asr", config.pipeline.asr.enable, config.pipeline.asr, ASRSyncPipeline, ASRAsyncPipeline),
+            ("img_cap", config.pipeline.img_cap.enable, config.pipeline.img_cap, ImgCapSyncPipeline, ImgCapAsyncPipeline),
+            ("llm", config.pipeline.llm.enable and not config.pipeline.mllm.enable, config.pipeline.llm, LLMSyncPipeline, LLMAsyncPipeline),
+            ("ocr", config.pipeline.ocr.enable, config.pipeline.ocr, OCRSyncPipeline, OCRAsyncPipeline),
+            ("tts", config.pipeline.tts.enable, config.pipeline.tts, TTSSyncPipeline, TTSAsyncPipeline),
+        )
+        for attr_name, enabled, pipeline_cfg, sync_cls, async_cls in specs:
+            self._reload_pipeline_attr(attr_name, enabled, pipeline_cfg, sync_cls, async_cls)
 
         logger.info("Reloaded pipelines.")
 

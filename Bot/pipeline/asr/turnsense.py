@@ -457,7 +457,11 @@ class TurnSenseDetector:
 
     @staticmethod
     def _softmax(logits):
+        return TurnSenseDetector._softmax_axis(logits, axis=-1)
+
+    @staticmethod
+    def _softmax_axis(logits, axis: int = -1):
         values = np.asarray(logits, dtype=np.float32)
-        values = values - np.max(values)
+        values = values - np.max(values, axis=axis, keepdims=True)
         exp_values = np.exp(values)
-        return exp_values / np.sum(exp_values)
+        return exp_values / np.sum(exp_values, axis=axis, keepdims=True)

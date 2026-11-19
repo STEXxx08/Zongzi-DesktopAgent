@@ -1,11 +1,13 @@
 import os
-from typing import Dict, Any, Generator
+from typing import Any, Dict, Generator, Mapping, TypeVar
 
 import aiohttp
 import urllib3.util
 from aiohttp import ClientResponse
 from typeguard import typechecked
 from condata.pipeline.abs_data import AbsractImageModelQuery
+
+T = TypeVar("T")
 
 
 @typechecked
@@ -27,6 +29,32 @@ class BaseAsyncPipeline:
             return self._session
         self._session = aiohttp.ClientSession(self._base_url)
         return self._session
+
+    async def _post_multipart_json(
+        self,
+        endpoint: str,
+        data: Mapping[str, Any],
+        prediction_cls: type[T],
+    ) -> T:
+        try:
+            async with self.session.post(endpoint, data=data) as resp:
+                return await resp.json(encoding='utf8', loads=prediction_cls.model_validate_json)
+        finally:
+            for value in data.values():
+                if hasattr(value, "close"):
+                    try:
+                        value.close()
+                    except Exception:
+                        pass
+
+    async def _post_image_prediction(
+        self,
+        endpoint: str,
+        query: AbsractImageModelQuery,
+        prediction_cls: type[T],
+    ) -> T:
+        data = _parse_imgcap_query(query)
+        return await self._post_multipart_json(endpoint, data, prediction_cls)
 
     async def _dispose_client_session(self):
         if self._session is None:

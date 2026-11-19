@@ -52,110 +52,110 @@ class WebSearchApplication(AbstractApplication):
 
         @self._app.route("/web-search/search", methods=["POST"])
         def search():
-            try:
-                query = WebSearchQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-
-            try:
-                prediction = self.model.search(query.query)
-            except Exception as exc:
-                logger.exception(f"SearXNG request failed: {exc}")
-                prediction = WebSearchPrediction(
-                    query=query.query,
-                    error=str(exc),
-                )
-            return Response(
-                response=prediction.model_dump_json(),
-                status=200,
-                mimetype="application/json",
-                headers={"Content-Type": "application/json; charset=utf-8"},
+            return self._dispatch_query(
+                query_cls=WebSearchQuery,
+                pred_cls=WebSearchPrediction,
+                query_attr="query",
+                model_attr="model",
+                method_name="search",
+                label="SearXNG",
             )
 
         @self._app.route("/web-search/weather", methods=["POST"])
         def weather():
-            try:
-                query = WeatherQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-
-            logger.info(f"Weather request received: location={query.location!r}")
-
-            if self.weather_model is None:
-                prediction = WeatherPrediction(
-                    query=query.location,
-                    error="Weather module is disabled",
-                )
-            else:
-                try:
-                    prediction = self.weather_model.get_weather(query.location)
-                except Exception as exc:
-                    logger.exception(f"Weather request failed: {exc}")
-                    prediction = WeatherPrediction(query=query.location, error=str(exc))
-            return self._json_response(prediction)
+            return self._dispatch_query(
+                query_cls=WeatherQuery,
+                pred_cls=WeatherPrediction,
+                query_attr="location",
+                model_attr="weather_model",
+                method_name="get_weather",
+                label="Weather",
+                disabled_name="Weather",
+                log_field="location",
+            )
 
         @self._app.route("/web-search/news", methods=["POST"])
         def news():
-            try:
-                query = NewsQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-            logger.info(f"News request received: query={query.query!r}")
-            try:
-                prediction = self.news_model.get_news(query.query) if self.news_model else NewsPrediction(
-                    query=query.query, error="News module is disabled"
-                )
-            except Exception as exc:
-                logger.exception(f"News request failed: {exc}")
-                prediction = NewsPrediction(query=query.query, error=str(exc))
-            return self._json_response(prediction)
+            return self._dispatch_query(
+                query_cls=NewsQuery,
+                pred_cls=NewsPrediction,
+                query_attr="query",
+                model_attr="news_model",
+                method_name="get_news",
+                label="News",
+                disabled_name="News",
+                log_field="query",
+            )
 
         @self._app.route("/web-search/steam", methods=["POST"])
         def steam():
-            try:
-                query = SteamNewsQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-            logger.info(f"Steam request received: game={query.game!r}")
-            try:
-                prediction = self.steam_model.get_news(query.game) if self.steam_model else SteamNewsPrediction(
-                    query=query.game, error="Steam module is disabled"
-                )
-            except Exception as exc:
-                logger.exception(f"Steam request failed: {exc}")
-                prediction = SteamNewsPrediction(query=query.game, error=str(exc))
-            return self._json_response(prediction)
+            return self._dispatch_query(
+                query_cls=SteamNewsQuery,
+                pred_cls=SteamNewsPrediction,
+                query_attr="game",
+                model_attr="steam_model",
+                method_name="get_news",
+                label="Steam",
+                disabled_name="Steam",
+                log_field="game",
+            )
 
         @self._app.route("/web-search/github", methods=["POST"])
         def github():
-            try:
-                query = GitHubReleaseQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-            logger.info(f"GitHub request received: repository={query.repository!r}")
-            try:
-                prediction = self.github_model.get_releases(query.repository) if self.github_model else GitHubReleasePrediction(
-                    query=query.repository, error="GitHub module is disabled"
-                )
-            except Exception as exc:
-                logger.exception(f"GitHub request failed: {exc}")
-                prediction = GitHubReleasePrediction(query=query.repository, error=str(exc))
-            return self._json_response(prediction)
+            return self._dispatch_query(
+                query_cls=GitHubReleaseQuery,
+                pred_cls=GitHubReleasePrediction,
+                query_attr="repository",
+                model_attr="github_model",
+                method_name="get_releases",
+                label="GitHub",
+                disabled_name="GitHub",
+                log_field="repository",
+            )
 
         @self._app.route("/web-search/exchange-rate", methods=["POST"])
         def exchange_rate():
+            return self._dispatch_query(
+                query_cls=ExchangeRateQuery,
+                pred_cls=ExchangeRatePrediction,
+                query_attr="text",
+                model_attr="exchange_rate_model",
+                method_name="convert",
+                label="Exchange-rate",
+                disabled_name="Exchange-rate",
+            )
+
+    def _dispatch_query(
+        self,
+        *,
+        query_cls,
+        pred_cls,
+        query_attr: str,
+        model_attr: str,
+        method_name: str,
+        label: str,
+        disabled_name: str | None = None,
+        log_field: str | None = None,
+    ):
+        try:
+            query = query_cls.model_validate(request.get_json(silent=True) or {})
+        except ValidationError as exc:
+            return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
+
+        query_value = getattr(query, query_attr)
+        if log_field is not None:
+            logger.info(f"{label} request received: {log_field}={query_value!r}")
+
+        sub_model = getattr(self, model_attr)
+        if sub_model is None and disabled_name is not None:
+            prediction = pred_cls(query=query_value, error=f"{disabled_name} module is disabled")
+        else:
             try:
-                query = ExchangeRateQuery.model_validate(request.get_json(silent=True) or {})
-            except ValidationError as exc:
-                return jsonify({"error": "invalid_request", "detail": exc.errors()}), 400
-            try:
-                prediction = self.exchange_rate_model.convert(query.text) if self.exchange_rate_model else ExchangeRatePrediction(
-                    query=query.text, error="Exchange-rate module is disabled"
-                )
+                prediction = getattr(sub_model, method_name)(query_value)
             except Exception as exc:
-                logger.exception(f"Exchange-rate request failed: {exc}")
-                prediction = ExchangeRatePrediction(query=query.text, error=str(exc))
-            return self._json_response(prediction)
+                logger.exception(f"{label} request failed: {exc}")
+                prediction = pred_cls(query=query_value, error=str(exc))
+        return self._json_response(prediction)
 
     @staticmethod
     def _json_response(prediction):

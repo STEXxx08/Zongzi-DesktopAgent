@@ -1,10 +1,10 @@
 from enum import Enum
 import logging
-from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
+
+from services.config_loader import load_service_subconfig
 
 logger = logging.getLogger(__name__)
 
@@ -90,41 +90,10 @@ class WebSearchServiceConfig(BaseModel):
     model_marker: str = Field(default="web_tool")
 
 
-def _as_plain_dict(value: Any) -> dict | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    if hasattr(value, "dict"):
-        return value.dict()
-    return None
-
-
-def _load_yaml_fallback() -> dict | None:
-    bot_config = Path(__file__).resolve().parents[2] / "config.yaml"
-    for path in (bot_config,):
-        if not path.exists():
-            continue
-        try:
-            with path.open("r", encoding="utf-8") as file:
-                root = yaml.safe_load(file) or {}
-            value = root.get("service", {}).get("web_search")
-            if isinstance(value, dict):
-                return value
-        except Exception as exc:
-            logger.warning(f"Failed to load web search config from {path}: {exc}")
-    return None
-
-
 def load_web_search_config(root_config: Any = None) -> WebSearchServiceConfig:
-    service_config = getattr(root_config, "service", None) if root_config is not None else None
-    raw_config = _as_plain_dict(getattr(service_config, "web_search", None))
-    if raw_config is None:
-        raw_config = _load_yaml_fallback()
-    try:
-        return WebSearchServiceConfig.model_validate(raw_config or {})
-    except Exception as exc:
-        logger.error(f"Invalid web search config; service disabled: {exc}")
-        return WebSearchServiceConfig()
+    return load_service_subconfig(
+        "web_search",
+        WebSearchServiceConfig,
+        root_config,
+        label="web search",
+    )

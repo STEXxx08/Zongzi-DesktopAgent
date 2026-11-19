@@ -48,8 +48,22 @@ from services.embedding.bge_onnx import (  # noqa: E402
     EmbedderSpec,
     get_shared_embedder,
     missing_external_data,
+    normalize,
     resolve_model_dir,
 )
+
+
+_QUERY_PREFIX_RE = re.compile(
+    r"^(?:(?:那|那么|你|再|请|请你|帮我|麻烦(?:你)?|给我|"
+    r"能不能|可以(?:帮我)?|搜一下|搜索一下|搜|搜索|"
+    r"查一下|查询一下|查|查询|看一下|看看|看下)\s*)+",
+    flags=re.IGNORECASE,
+)
+_QUERY_LEADING_DE_RE = re.compile(r"^的\s*")
+_QUERY_SUFFIX_RE = re.compile(r"(?:好不好|怎么样|吧|啊|呀|呢|吗)+$")
+_QUERY_TRAILING_DE_RE = re.compile(r"\s*的$")
+_QUERY_WHITESPACE_RE = re.compile(r"\s+")
+_QUERY_STRIP_CHARS = " 　，,。.!！?？:："
 
 
 class _ONNXBGEEmbedder:
@@ -112,10 +126,7 @@ class BGEIntentRouter:
 
     @staticmethod
     def _normalize(values: np.ndarray) -> np.ndarray:
-        if values.ndim == 1:
-            values = values[None, :]
-        norms = np.linalg.norm(values, axis=1, keepdims=True)
-        return values / np.maximum(norms, 1e-12)
+        return normalize(values)
 
     @property
     def allow_keyword_fallback(self) -> bool:
@@ -214,16 +225,9 @@ class BGEIntentRouter:
         # Intent-specific patterns remove semantic words such as "天气".  Then
         # remove only command/politeness text at the boundaries so tool arguments
         # like a city, game name, or repository remain intact.
-        query = re.sub(
-            r"^(?:(?:那|那么|你|再|请|请你|帮我|麻烦(?:你)?|给我|"
-            r"能不能|可以(?:帮我)?|搜一下|搜索一下|搜|搜索|"
-            r"查一下|查询一下|查|查询|看一下|看看|看下)\s*)+",
-            "",
-            query.strip(),
-            flags=re.IGNORECASE,
-        )
-        query = re.sub(r"^的\s*", "", query.strip())
-        query = re.sub(r"(?:好不好|怎么样|吧|啊|呀|呢|吗)+$", "", query.strip())
-        query = re.sub(r"\s*的$", "", query.strip())
-        query = re.sub(r"\s+", " ", query).strip(" 　，,。.!！?？:：")
+        query = _QUERY_PREFIX_RE.sub("", query.strip())
+        query = _QUERY_LEADING_DE_RE.sub("", query.strip())
+        query = _QUERY_SUFFIX_RE.sub("", query.strip())
+        query = _QUERY_TRAILING_DE_RE.sub("", query.strip())
+        query = _QUERY_WHITESPACE_RE.sub(" ", query).strip(_QUERY_STRIP_CHARS)
         return query or intent.default_query

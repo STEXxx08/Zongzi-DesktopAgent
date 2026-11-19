@@ -57,8 +57,8 @@ class MLLMOnlineModel(AbstractModel):
         # 设置 DashScope 基础 URL
         if config.api_url:
             dashscope.base_http_api_url = config.api_url
-        # 设置 API Key（从环境变量读取）
-        self.api_key = os.getenv("DASHSCOPE_API_KEY")
+        # 复用 config.api_key（MLLMPipelineConfig.__post_init__ 已读取并校验 DASHSCOPE_API_KEY）
+        self.api_key = getattr(config, "api_key", None) or os.getenv("DASHSCOPE_API_KEY")
         if not self.api_key:
             raise ValueError("缺少 DashScope API Key，请在配置或 DASHSCOPE_API_KEY 环境变量中设置")
 

@@ -2,8 +2,8 @@ from enum import Enum
 from typing import List
 
 from pydantic import BaseModel, Field
-from data.pipeline.abs_data import AbstractModelQuery, AbstractModelPrediction
-from data.pipeline.llm import RoleEnum
+from condata.pipeline.abs_data import AbstractModelQuery, AbstractModelPrediction
+from condata.pipeline.llm import RoleEnum
 
 """
 Defense models are categorized into three types based on their input-output orientation:

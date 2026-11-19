@@ -39,7 +39,9 @@ FIRST_PARTY = {
     'agent', 'character', 'common', 'devices', 'event', 'framework', 'manager',
     'memory', 'pipeline', 'services', 'tools', 'ui', 'asr', 'llm', 'mllm', 'tts',
     'ocr', 'img_cap', 'web_search', 'condata', 'con_datapack', 'utils', 'data',
-    'config', 'starter', 'bot', 'main', 'abs_app', 'abs_model', 'decorator',
+    'config', 'starter', 'bot', 'bot_asr_controller', 'bot_event_binder',
+    'bot_tts_scheduler', 'bot_turn_orchestrator', 'bot_vision_controller',
+    'main', 'abs_app', 'abs_model', 'decorator',
     'microphone', 'turnsense',
 }
 

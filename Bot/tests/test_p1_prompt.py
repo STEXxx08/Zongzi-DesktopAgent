@@ -87,11 +87,12 @@ class _StubConfig:
 
 
 @pytest.fixture
-def notice_builder(monkeypatch):
-    import bot as bot_module
+def notice_builder():
+    from bot_turn_orchestrator import BotTurnOrchestrator
 
-    monkeypatch.setattr(bot_module, "_config", _StubConfig(max_rounds=6))
-    return bot_module.Bot.__new__(bot_module.Bot)._build_turn_notices
+    orchestrator = BotTurnOrchestrator.__new__(BotTurnOrchestrator)
+    orchestrator._config_provider = lambda: _StubConfig(max_rounds=6)
+    return orchestrator._build_turn_notices
 
 
 def test_notice_only_when_round_limit_reached(notice_builder):

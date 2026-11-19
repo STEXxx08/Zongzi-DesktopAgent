@@ -1,0 +1,17 @@
+{
+  "name": "Gemini 娘 · 星饰猫耳",
+  "description": "紫发猫耳 Q 版半身立绘（8 种表情）",
+  "default": "default.png",
+  "emotions": {
+    "happy": "laugh.png",
+    "sad": "wronged.png",
+    "angry": "pout.png",
+    "shy": "shy.png",
+    "surprised": "surprised.png"
+  },
+  "states": {
+    "thinking": "serious.png",
+    "listening": "calm.png",
+    "error": "wronged.png"
+  }
+}

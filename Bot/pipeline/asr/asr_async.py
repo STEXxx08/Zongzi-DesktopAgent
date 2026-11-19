@@ -56,8 +56,7 @@ class ASRAsyncPipeline(BaseAsyncPipeline):
     @typechecked
     async def predict(self, query: ASRQuery) -> ASRPrediction:
         data = _parse_asr_query(query)
-        async with self.session.post(self._predict_endpoint, data=data) as resp:
-            return await resp.json(encoding='utf8', loads=ASRPrediction.model_validate_json)
+        return await self._post_multipart_json(self._predict_endpoint, data, ASRPrediction)
 
     @typechecked
     async def stream_predict(self, query: ASRStreamQuery) -> Generator[ASRPrediction, None, None]:

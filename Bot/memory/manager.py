@@ -18,6 +18,7 @@ from pipeline.llm.llm_sync import LLMSyncPipeline
 from pipeline.mllm.mllm_sync import MLLMSyncPipeline
 from pipeline.llm.config import LLMPipelineConfig
 from pipeline.mllm.config import MLLMPipelineConfig
+from services.config_loader import dump_pydantic_model
 
 try:
     from .config import MemoryConfig
@@ -60,15 +61,7 @@ _USER_TURN_FLOOR = 2
 
 
 def _dump_model_config(config: Any) -> dict:
-    if config is None:
-        return {}
-    if isinstance(config, dict):
-        return dict(config)
-    if hasattr(config, "model_dump"):
-        return config.model_dump()
-    if hasattr(config, "dict"):
-        return config.dict()
-    return dict(getattr(config, "__dict__", {}))
+    return dump_pydantic_model(config, allow_dict_attr=True) or {}
 
 
 def _clone_model_config(base_config: Any, overrides: dict) -> Any:
@@ -232,6 +225,7 @@ class MemoryManager:
             merge_llm_config: Optional[Any] = None,
             merge_mllm_config: Optional[Any] = None,
             retriever: Optional[MemoryRetriever] = None,
+            clock: Optional[Callable[[], datetime]] = None,
     ):
         self.config = config
         self.data_dir = config.data_dir
@@ -294,11 +288,13 @@ class MemoryManager:
         # 记忆检索器：只负责"窗口选择 + 渲染 + 索引"，不依赖向量模型也能工作
         # （mode: off 时不需要 BGE）。bot.py 会传入同一个实例，使工具链路与
         # 抽取参考共用一份解析结果。
+        self._clock = clock
         self.retriever = retriever or MemoryRetriever(
             config.retrieval,
             data_dir=self.data_dir,
             core_path=self.data_dir / "core_memory.md",
             injection_max_chars=config.injection_max_chars,
+            clock=clock,
         )
 
         # 运行时状态

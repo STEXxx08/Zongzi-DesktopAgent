@@ -28,7 +28,6 @@ class MLLMSyncPipeline(CommonModelPipeline):
                     query_dict[key] = value
         return query_dict
 
-    @typechecked
     @trace_model_call
     def stream_predict(self, query: MLLMQuery):
         response = requests.post(

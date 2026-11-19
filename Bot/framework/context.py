@@ -25,6 +25,8 @@ class BotContext:
     """
 
     def __init__(self):
+        global _config
+        _config = get_config()
         self.llm: LLMSyncPipeline | None = None
         self.asr: ASRSyncPipeline | None = None
         self.ocr: OCRSyncPipeline | None = None
@@ -45,11 +47,12 @@ class BotContext:
         self.speaker: Speaker | None = None
 
         self.bot_name: str | None = None
-        # 主人称呼（仅备注用途，当前无代码读取；随项目改名一并更新）
-        self.master_name: str = "STEXxx"
 
-        assert _config.pipeline.llm.enable, f"At least LLMPipeline must be enabled in your config."
-        self.llm = LLMSyncPipeline(_config.pipeline.llm)
+        assert _config.pipeline.llm.enable or _config.pipeline.mllm.enable, (
+            "At least one of LLMPipeline or MLLMPipeline must be enabled in your config."
+        )
+        if _config.pipeline.llm.enable and not _config.pipeline.mllm.enable:
+            self.llm = LLMSyncPipeline(_config.pipeline.llm)
         self.filter = FirstMatchedFilter(_config.character.chat.filter.bad_words)
         self.llm_prompt_manager = LLMPromptManager(_config.character.chat, bot_name=_config.character.bot_name)
         self.speaker = Speaker()
@@ -64,7 +67,7 @@ class BotContext:
             self.tts = TTSSyncPipeline(_config.pipeline.tts)
         if _config.pipeline.img_cap.enable:
             self.img_cap = ImgCapSyncPipeline(_config.pipeline.img_cap)
-        if _config.pipeline.vlm.enable:
+        if _config.pipeline.vlm.enable and not _config.pipeline.mllm.enable:
             self.vlm = VLMSyncPipeline(_config.pipeline.vlm)
         if _config.service.microphone.vad_interim.enable:
             self.mic = SmartMicrophone(

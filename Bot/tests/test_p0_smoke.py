@@ -445,19 +445,23 @@ class _FakeResult:
         return _FakeCall()
 
 
-def test_routed_tool_output_is_truncated(monkeypatch):
-    from bot import Bot
+def test_routed_tool_output_is_truncated():
+    from bot_turn_orchestrator import BotTurnOrchestrator
     from manager.config_manager import get_config
 
-    limit = get_config().service.tool.max_result_chars
+    cfg = get_config()
+    limit = cfg.service.tool.max_result_chars
     huge = "x" * (limit + 5000)
 
-    text = Bot._render_tool_output(_FakeResult(ok=True, output={"content": huge}))
+    orchestrator = BotTurnOrchestrator.__new__(BotTurnOrchestrator)
+    orchestrator._config_provider = lambda: cfg
+
+    text = orchestrator.render_tool_output(_FakeResult(ok=True, output={"content": huge}))
     assert len(text) < limit + 100
     assert text.endswith("【工具结果已截断】")
 
-    failure = Bot._render_tool_output(_FakeResult(ok=False, output=None, error="boom"))
+    failure = orchestrator.render_tool_output(_FakeResult(ok=False, output=None, error="boom"))
     assert failure == '"boom"' or failure == "boom"
 
-    small = Bot._render_tool_output(_FakeResult(ok=True, output={"content": "hi"}))
+    small = orchestrator.render_tool_output(_FakeResult(ok=True, output={"content": "hi"}))
     assert small == '{"content": "hi"}'

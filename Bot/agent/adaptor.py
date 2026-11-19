@@ -7,8 +7,11 @@ from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, System
 from langchain_core.outputs import ChatResult, ChatGeneration
 from langchain_core.tools import BaseTool
 from condata.pipeline.llm import LLMQuery, Conversation, RoleEnum
+from condata.pipeline.mllm import MLLMQuery
 from pipeline.llm.llm_sync import LLMSyncPipeline
 from pipeline.llm.config import LLMPipelineConfig
+from pipeline.mllm.config import MLLMPipelineConfig
+from pipeline.mllm.mllm_sync import MLLMSyncPipeline
 
 
 def convert(messages: list[BaseMessage]) -> list[Conversation]:
@@ -36,13 +39,18 @@ class LangChainAdaptedLLM(BaseChatModel):
     https://python.langchain.com/docs/how_to/custom_llm/
     """
 
+    def _build_query(self, text: str, history: list[Conversation]):
+        if getattr(self, "_is_mllm", False):
+            return MLLMQuery(text=text, history=history, images=[])
+        return LLMQuery(text=text, history=history)
+
     def _generate(self, messages: list[BaseMessage], stop: Optional[list[str]] = None,
                   run_manager: Optional[CallbackManagerForLLMRun] = None, **kwargs: Any) -> ChatResult:
         # Replace this with actual logic to generate a response from a list
         # of messages.
         last_message = messages[-1]
 
-        query = LLMQuery(text=last_message.content, history=convert(messages[0:-1]))
+        query = self._build_query(text=last_message.content, history=convert(messages[0:-1]))
         object.__setattr__(query, "_harness_context", {"source": "agent"})
         prediction = self._pipeline.predict(query=query)
 
@@ -53,11 +61,15 @@ class LangChainAdaptedLLM(BaseChatModel):
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
 
-    def __init__(self, config: LLMPipelineConfig):
+    def __init__(self, config: LLMPipelineConfig | MLLMPipelineConfig):
         super().__init__()
         self._tool_names = set[str]
         self._openai_tools: list[dict] = []
-        self._pipeline = LLMSyncPipeline(config=config)
+        self._is_mllm = isinstance(config, MLLMPipelineConfig)
+        if self._is_mllm:
+            self._pipeline = MLLMSyncPipeline(config=config)
+        else:
+            self._pipeline = LLMSyncPipeline(config=config)
         self._model_name = "CustomLLM"
         self._tools: Sequence[
             Union[typing.Dict[str, Any], type, Callable, BaseTool]  # noqa: UP006
@@ -76,7 +88,7 @@ class LangChainAdaptedLLM(BaseChatModel):
     ) -> str:
         if stop is not None:
             raise ValueError("stop kwargs are not permitted.")
-        prediction = self._pipeline.predict(LLMQuery(
+        prediction = self._pipeline.predict(self._build_query(
             text=prompt,
             history=[]
         ))

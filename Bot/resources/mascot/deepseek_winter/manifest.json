@@ -1,0 +1,17 @@
+{
+  "name": "DeepSeek 娘 · 冬装小鲸鱼",
+  "description": "鲸鱼连帽冬装 Q 版半身立绘（8 种表情）",
+  "default": "default.png",
+  "emotions": {
+    "happy": "laugh.png",
+    "sad": "wronged.png",
+    "angry": "pout.png",
+    "shy": "shy.png",
+    "surprised": "surprised.png"
+  },
+  "states": {
+    "thinking": "serious.png",
+    "listening": "calm.png",
+    "error": "wronged.png"
+  }
+}

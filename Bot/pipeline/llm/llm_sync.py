@@ -17,12 +17,13 @@
 
 from typing import Any, Generator
 
+import requests
 from loguru import logger
 from openai import OpenAI
 from requests import Response
 from typeguard import typechecked
 from condata.pipeline.llm import LLMQuery, LLMPrediction, RoleEnum, Conversation
-from condata.harness import trace_model_call, usage_dict
+from condata.harness import trace_model_call, usage_dict, record_protocol_error
 
 from pipeline.base.base_sync import CommonModelPipeline
 from pipeline.llm.config import LLMPipelineConfig
@@ -94,6 +95,7 @@ class LLMSyncPipeline(CommonModelPipeline):
 
     # ---------------------------------------------------------------- predict
 
+    @trace_model_call
     @typechecked
     def predict(self, query: LLMQuery) -> LLMPrediction | None:
         if not self._is_openai_format:
@@ -124,6 +126,7 @@ class LLMSyncPipeline(CommonModelPipeline):
 
     # --------------------------------------------------------- stream_predict
 
+    @trace_model_call
     def stream_predict(self, query: LLMQuery, chunk_size: int | None = None) -> Generator[
         LLMPrediction, None, None
     ]:
@@ -134,7 +137,20 @@ class LLMSyncPipeline(CommonModelPipeline):
         InstrumentationWarning，同一个成因）。
         """
         if not self._is_openai_format:
-            yield from super().stream_predict(query, chunk_size)
+            response = requests.post(
+                url=self.stream_predict_url,
+                json=self.parse_query(query),
+                stream=True,
+            )
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    yield LLMPrediction.model_validate_json(line)
+                except Exception as exc:
+                    record_protocol_error("llm_stream", line, exc)
+                    logger.warning("LLM 流式数据解析失败，详情已记录到 Harness 日志。")
             return
 
         assert self._remote is not None

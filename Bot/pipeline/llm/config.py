@@ -74,3 +74,11 @@ class LLMPipelineConfig(AbstractPipelineConfig):
         default="http://127.0.0.1:11000/llm/stream-predict",
         description="LLM 流式预测请求地址（仅 `openai_format: false` 时使用）。",
     )
+    stream_output: bool = Field(
+        default=True,
+        description="是否启用纯文本 LLM 流式输出（关闭时保持非流式逻辑）。",
+    )
+    stream_tts_by_sentence: bool = Field(
+        default=True,
+        description="启用 LLM 流式输出时，是否按分句将增量文本提交给 TTS。",
+    )

@@ -11,6 +11,11 @@ from loguru import logger
 from services.sandbox.config import SandboxServiceConfig
 
 
+_RESERVED_WIN_NAME_RE = re.compile(
+    r"(?i)(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?"
+)
+
+
 class RestrictedFilesystem:
     """应用层文件权限边界；不提供任意代码执行或操作系统级隔离。"""
 
@@ -42,9 +47,7 @@ class RestrictedFilesystem:
         if relative.is_absolute() or ".." in relative.parts:
             raise PermissionError("拒绝访问文件空间之外的路径")
         for part in relative.parts:
-            if part.endswith((".", " ")) or re.fullmatch(
-                r"(?i)(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", part
-            ):
+            if part.endswith((".", " ")) or _RESERVED_WIN_NAME_RE.fullmatch(part):
                 raise ValueError("路径包含不支持的文件名")
         path = self.root / relative
         if path == self.root and not allow_root:

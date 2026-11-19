@@ -1,3 +1,4 @@
+from functools import lru_cache
 import json
 import logging
 import re
@@ -9,6 +10,47 @@ from services.tool_runtime import ToolCall, ToolRuntime
 
 
 logger = logging.getLogger(__name__)
+
+_DECODER = json.JSONDecoder()
+_DECODER_LENIENT = json.JSONDecoder(strict=False)
+_MARKER_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_OUTER_FENCE_OPEN_RE = re.compile(r"^\s*```(?:json|text)?\s*\n?", re.I)
+_OUTER_FENCE_CLOSE_RE = re.compile(r"\s*```\s*$")
+_INNER_FENCE_OPEN_RE = re.compile(r"```(?:json)?\s*", re.I)
+_INNER_FENCE_CLOSE_RE = re.compile(r"\s*```")
+_FOREIGN_TAG_RE = re.compile(r"<\s*/?\s*(?:function|parameter)\s*=", re.I)
+_TOOL_SHAPED_NAME_RE = re.compile(r'"name"\s*:')
+_TOOL_SHAPED_ARGS_RE = re.compile(r'"arguments"\s*:')
+_WHITESPACE_RE = re.compile(r"\s+")
+_TRIPLE_BACKTICK_RE = re.compile(r"```")
+_TRAILING_FENCE_RE = re.compile(r"```(?:json|text)?\s*$", re.I)
+
+
+@lru_cache(maxsize=32)
+def _opening_pattern(marker: str) -> re.Pattern[str]:
+    accepted = "|".join(
+        re.escape(name) for name in dict.fromkeys((marker, "tool_call", "harness_tool_call"))
+    )
+    return re.compile(rf"<(?P<marker>{accepted})>\s*", re.IGNORECASE)
+
+
+@lru_cache(maxsize=32)
+def _closing_pattern(tag_name: str) -> re.Pattern[str]:
+    return re.compile(rf"\s*</{re.escape(tag_name)}>", re.IGNORECASE)
+
+
+@lru_cache(maxsize=32)
+def _stream_marker_config(
+    markers: tuple[str, ...],
+) -> tuple[re.Pattern[str], tuple[str, ...]]:
+    names = tuple(dict.fromkeys(("harness_tool_call", "tool_call", *markers)))
+    tags = "|".join(re.escape(name) for name in names)
+    tag_re = re.compile(rf"<\s*/?\s*(?:{tags})\b", re.I)
+    prefixes = tuple(
+        [tag for name in names for tag in (f"<{name}>", f"</{name}>")]
+        + ["<function=", "<parameter="]
+    )
+    return tag_re, prefixes
 
 
 COMMON_TOOL_RULES = (
@@ -41,7 +83,7 @@ class ModelToolGateway:
         self.update_marker(marker)
 
     def update_marker(self, marker: str) -> None:
-        if not isinstance(marker, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", marker) is None:
+        if not isinstance(marker, str) or _MARKER_NAME_RE.fullmatch(marker) is None:
             raise ValueError("通用工具标记必须为小写字母开头的字母、数字或下划线")
         self.marker = marker
 
@@ -94,61 +136,74 @@ class ModelToolGateway:
 
     def parse_model_response(self, response: str, *, context: dict | None = None) -> tuple[str, ToolCall | None]:
         response = response or ""
-        accepted = "|".join(re.escape(name) for name in dict.fromkeys((self.marker, "tool_call", "harness_tool_call")))
-        visible, _ = self.extract_stream_visible_text(response, flush=True, markers=(self.marker,))
-        if re.search(rf"<(?:{accepted})>\s*", response, re.IGNORECASE) is None and visible == response:
-            self._parse_state.error = None
-            return response, None
+        opening = _opening_pattern(self.marker)
+        has_opening = opening.search(response) is not None
+        visible = None
+        if not has_opening:
+            visible, _ = self.extract_stream_visible_text(response, flush=True, markers=(self.marker,))
+            if visible == response:
+                self._parse_state.error = None
+                return response, None
         with CallSpan("protocol", self.marker, request={"raw_response": response}, **(context or {})) as span:
-            result = self._parse_model_response(response)
+            result = self._parse_model_response(response, opening=opening, precomputed_visible=visible if not has_opening else None)
             if self.last_error and span.error is None:
                 span.fail(self.last_error)
             span.response = {"has_call": result[1] is not None, "visible_text": result[0]}
             return result
 
-    def _parse_model_response(self, response: str) -> tuple[str, ToolCall | None]:
+    def _parse_model_response(
+        self,
+        response: str,
+        *,
+        opening: re.Pattern[str] | None = None,
+        precomputed_visible: str | None = None,
+    ) -> tuple[str, ToolCall | None]:
         self._parse_state.error = None
         response = response or ""
-        accepted = "|".join(re.escape(name) for name in dict.fromkeys((self.marker, "tool_call", "harness_tool_call")))
-        opening = re.compile(rf"<(?P<marker>{accepted})>\s*", re.IGNORECASE)
-        if opening.search(response) is None:
-            visible, _ = self.extract_stream_visible_text(response, flush=True, markers=(self.marker,))
+        if opening is None:
+            opening = _opening_pattern(self.marker)
+        if precomputed_visible is not None or opening.search(response) is None:
+            visible = (
+                precomputed_visible
+                if precomputed_visible is not None
+                else self.extract_stream_visible_text(response, flush=True, markers=(self.marker,))[0]
+            )
             if visible != response:
                 self._parse_state.error = f"通用工具调用标记缺失、损坏或未闭合；请使用完整的 <{self.marker}>JSON 对象</{self.marker}>。"
                 logger.warning("模型通用工具指令无效，未执行请求：%s", self.last_error)
                 return visible.strip(), None
             return response, None
         # 兼容模型把整个机器回复包进代码块的情况，不将围栏送入 TTS。
-        if response.strip().startswith("```") and response.strip().endswith("```"):
-            response = re.sub(r"^\s*```(?:json|text)?\s*\n?", "", response, count=1, flags=re.I)
-            response = re.sub(r"\s*```\s*$", "", response, count=1)
+        stripped = response.strip()
+        if stripped.startswith("```") and stripped.endswith("```"):
+            response = _OUTER_FENCE_OPEN_RE.sub("", response, count=1)
+            response = _OUTER_FENCE_CLOSE_RE.sub("", response, count=1)
         visible = ""
         try:
             matches = []
             visible_parts = []
             cursor = 0
-            decoder = json.JSONDecoder()
             while match := opening.search(response, cursor):
                 start = match.end()
-                fence = re.match(r"```(?:json)?\s*", response[start:], re.I)
+                fence = _INNER_FENCE_OPEN_RE.match(response, start)
                 if fence:
-                    start += fence.end()
+                    start = fence.end()
                 if response[start:].startswith("<"):
                     raise ValueError("使用了 XML/模型原生函数调用格式；本应用的标记内必须直接放 JSON 对象，不允许 function/parameter 子标签")
                 try:
-                    payload, end = decoder.raw_decode(response, start)
+                    payload, end = _DECODER.raw_decode(response, start)
                 except json.JSONDecodeError as exc:
                     if not exc.msg.startswith("Invalid control character"):
                         raise
                     # 仅容忍 JSON 字符串内未转义的换行/控制字符，不猜测缺失引号或结构。
-                    payload, end = json.JSONDecoder(strict=False).raw_decode(response, start)
+                    payload, end = _DECODER_LENIENT.raw_decode(response, start)
                     logger.debug("工具调用 JSON 中的字符串控制字符已按文本处理。")
                 if fence:
-                    fence_end = re.match(r"\s*```", response[end:])
+                    fence_end = _INNER_FENCE_CLOSE_RE.match(response, end)
                     if fence_end is None:
                         raise ValueError("工具调用 JSON 代码块未闭合")
-                    end += fence_end.end()
-                closing = re.compile(rf"\s*</{re.escape(match.group('marker'))}>", re.IGNORECASE)
+                    end = fence_end.end()
+                closing = _closing_pattern(match.group("marker"))
                 end_marker = closing.match(response, end)
                 if end_marker is None:
                     raise ValueError("工具调用 JSON 后缺少结束标记")
@@ -192,22 +247,21 @@ class ModelToolGateway:
     @staticmethod
     def extract_stream_visible_text(buffer: str, flush: bool = False, *, markers=()) -> tuple[str, str]:
         """统一隐藏机器指令；未完成的标签和 JSON 暂存，不向输出端猜测性释放。"""
-        names = tuple(dict.fromkeys(("harness_tool_call", "tool_call", *(name for name in markers if name))))
-        tags = "|".join(re.escape(name) for name in names)
-        match = re.search(rf"<\s*/?\s*(?:{tags})\b", buffer, re.I)
-        foreign = re.search(r"<\s*/?\s*(?:function|parameter)\s*=", buffer, re.I)
+        markers_key = tuple(dict.fromkeys(name for name in markers if name))
+        tag_re, prefixes = _stream_marker_config(markers_key)
+        match = tag_re.search(buffer)
+        foreign = _FOREIGN_TAG_RE.search(buffer)
         if foreign and (match is None or foreign.start() < match.start()):
             match = foreign
         blocked_at = match.start() if match else None
-        decoder = json.JSONDecoder(strict=False)
         cursor = 0
         # 未带标记的通用工具对象也不能送入语音；这里只隐藏，不擅自执行。
         while (start := buffer.find("{", cursor)) != -1:
             try:
-                payload, end = decoder.raw_decode(buffer, start)
+                payload, end = _DECODER_LENIENT.raw_decode(buffer, start)
             except json.JSONDecodeError:
                 tail = buffer[start:]
-                tool_shaped = bool(re.search(r'"name"\s*:', tail) and re.search(r'"arguments"\s*:', tail))
+                tool_shaped = bool(_TOOL_SHAPED_NAME_RE.search(tail) and _TOOL_SHAPED_ARGS_RE.search(tail))
                 # 只有"确实长得像工具对象"（或还在流式、无法判定）才从花括号处拦截。
                 # 正文里出现的普通花括号（模型写到一半的 JSON、报错堆栈、昵称里的 {}）
                 # 不能当成拦截点：否则它后面的整套机器指令都会被当作可见文本送出去。
@@ -222,13 +276,11 @@ class ModelToolGateway:
             # 标签可能分散在多个数据块中，连开头的 '<' 也需要暂存。
             start = buffer.rfind("<")
             if start != -1:
-                tail = re.sub(r"\s+", "", buffer[start:].lower())
-                prefixes = [tag for name in names for tag in (f"<{name}>", f"</{name}>")]
-                prefixes.extend(("<function=", "<parameter="))
+                tail = _WHITESPACE_RE.sub("", buffer[start:].lower())
                 if any(tag.startswith(tail) for tag in prefixes):
                     blocked_at = start
         if not flush:
-            fences = list(re.finditer(r"```", buffer))
+            fences = list(_TRIPLE_BACKTICK_RE.finditer(buffer))
             if len(fences) % 2:
                 start = fences[-1].start()
                 blocked_at = min(start, blocked_at) if blocked_at is not None else start
@@ -239,7 +291,7 @@ class ModelToolGateway:
             return buffer, ""
         prefix = buffer[:blocked_at]
         # 模型偶尔把机器指令包进代码块；围栏也不是可朗读内容。
-        fence = re.search(r"```(?:json|text)?\s*$", prefix, re.I)
+        fence = _TRAILING_FENCE_RE.search(prefix)
         if fence:
             blocked_at = fence.start()
             prefix = buffer[:blocked_at]

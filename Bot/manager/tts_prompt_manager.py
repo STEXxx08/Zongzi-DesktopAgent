@@ -8,6 +8,8 @@ from condata.data.prompt import TTSPrompt
 from character.config import SpeechConfig
 from common.enumerator import Language
 
+_TAG_BRACKET_RE = re.compile(r"\[(.*?)\]")
+
 
 def _get_all_files(prompts_dir: str):
     res = []
@@ -36,7 +38,7 @@ def parse_tts_prompt_filename(s: str) -> Tuple[str, str, str]:
     :param s: Filename
     :return: lang, sentiment, transcript
     """
-    matches = re.findall(r'\[(.*?)\]', s)
+    matches = _TAG_BRACKET_RE.findall(s)
 
     try:
         lang = Language.value_of(matches[0])

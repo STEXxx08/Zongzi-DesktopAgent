@@ -2,7 +2,8 @@
 
 独立日志默认位于 `Bot/logs/harness.jsonl`。路径相对于 Bot 应用代码目录解析，不依赖启动目录。
 启动 Bot 时初始化；设置位于 `Bot/config.yaml` 的 `service.harness`，支持配置刷新。
-每行是一个 JSON 对象，中文使用 UTF-8 保存。该文件不传播到 GUI、聊天日志、TTS、历史或模型上下文。
+每行是一个 JSON 对象，中文使用 UTF-8 保存。默认不传播到 GUI、聊天日志、TTS、历史或模型上下文；
+唯一例外是显式开启的 `harness_recall` 回读工具（见下方[模型回读](#模型回读harness_recall)）。
 
 ## 记录范围
 
@@ -39,6 +40,39 @@ Bot 的直连模型客户端、Core 的 DeepSeek 和 DashScope 适配器会透�
 工具处理函数抛出异常时，记录异常类型、消息及堆栈；HTTP 异常若带 response，额外记录状态码和响应正文。
 普通控制台仍只输出简短提示，不把损坏指令送入用户输出。完整堆栈不包含局部变量转储。
 标记缺失等无底层异常的协议失败记录原因和原始请求，不伪造堆栈。
+
+## 模型回读（harness_recall）
+
+工具结果只进当轮的 `TOOL_RESULT`，不写历史、不写记忆，所以多轮工具链之后模型看不见
+上一轮到底返回了什么。`harness_recall`（`Bot/services/harness_recall/`）把这份记录按
+三条边界开放给模型：
+
+- **窗口**：只读本次进程启动之后写入的部分。左边界是启动时日志文件的字节长度
+  （`boot_offset`），再按 `conversation_id` 收窄。上一次运行、别的会话的记录一律不可见。
+  读取路径取 `service.harness.path`（与写入同源，不硬编码），热重载后自动跟随；
+  `enable=false` 或路径不合法时明确报错，不返回空。
+- **预算**：从文件末尾按 256 KiB 块倒着扫，先做字节级预筛（`kind=tool` /
+  `event=finished` / `conversation_id`），命中的行才 `json.loads`，不整文件入内存。
+  字节、行数、条数任一上限触顶都会在结果里说明"还有更早的没展开"。
+- **模糊**：模型拿不到 `call_id`。默认 `{"scope":"recent"}`（最近 `default_turns_back + 1`
+  个 turn）返回索引——序号、工具名、参数/结果摘要；再用 `ordinal`（或 `call_id`）取全文。
+  零参数调用即可覆盖"检查上一轮的工具调用"。`keyword` 是字面包含、多词 AND，不走向量检索；
+  0 命中会给出下一步该改哪个参数。
+
+`include_payloads=false` 时日志里本来就没有正文字段，回读会明确显示"（未记录）"，
+而不是伪装成空结果。
+
+```yaml
+service:
+  harness_recall:
+    enable: true
+    max_scan_bytes: 4194304
+    max_scan_lines: 5000
+    max_records: 8
+    max_summary_chars: 200
+    default_turns_back: 2
+    max_turns_back: 5
+```
 
 ## 设置与隐私
 

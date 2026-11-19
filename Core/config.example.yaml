@@ -7,6 +7,26 @@
 
 # Modify your config for models you want to use.
 
+# ============================================================================
+# 服务启动开关（独立的启动器设置段，和下面的模型配置完全分离）
+# ----------------------------------------------------------------------------
+# 键名 = Core/agent-stack/registry.json 里的服务名；true = 启动器 start 时拉起。
+# 这里没写的服务回落到 registry.json 自己的 "enabled" 值。
+# 两个启动器（agent-stack.cmd 与 python agent_stack.py）都读这一段，改这里就够了。
+# 冲突提醒：llm / mllm 都监听 11000，llm-memory / mllm-memory 都监听 10010，
+#          每组只能开一个；两个都 true 时启动器会直接报错，而不是让服务在 bind 时报错。
+# ============================================================================
+Startup:
+  asr: true
+  llm: true           # Bot 用 LLM 时开这个（与 mllm 二选一）
+  mllm: false         # Bot 用 MLLM 时改开这个
+  tts: true
+  llm-memory: true    # Bot 的 memory.memory_model.type = llm 时需要
+  mllm-memory: false  # type = mllm 时改开这个
+  web_search: true
+  ocr: false
+  imgcap: false
+
 ASR:
   id: "Sherpa-ONNX-Streaming-Zipformer-ZH-INT8" # The model you want to use
   host: "0.0.0.0" # Host of the API service you want to start
@@ -31,7 +51,16 @@ ASR:
       decoder: "decoder.onnx"
       joiner: "joiner.int8.onnx"
       tokens: "tokens.txt"
+      # This build of sherpa-onnx may be unable to load its CUDA execution
+      # provider (onnxruntime_providers_cuda.dll); it then falls back to the CPU
+      # silently, so num_threads is what actually controls speed.
       provider: "cuda"
+      # Keep this at 1. Raising it looks faster on an idle machine (2 threads:
+      # 96 ms vs 134 ms per 0.24 s chunk) but costs 2.6x the CPU time
+      # (cpu_per_wall 3.19 vs 0.90) and loses on the tail once anything else is
+      # running: under simulated contention p90 327 ms (2 threads) vs 305 ms
+      # (1 thread). Real logs confirmed it: same-turn transcript intervals got
+      # worse (p50 0.601 s -> 0.789 s). To go faster, switch to a smaller model.
       num_threads: 1
       sample_rate: 16000
       feature_dim: 80

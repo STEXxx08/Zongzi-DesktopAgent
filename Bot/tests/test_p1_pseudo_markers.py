@@ -118,30 +118,29 @@ def test_bot_extract_keeps_tool_protocol_working_and_drops_leak():
     注意 `flush` 的语义：非流式/收尾调用（bot.py 里显式传 `flush=True`）必须把伪块丢掉；
     流式中间调用（`flush=False`）则允许把未判定的尾部暂存给下一段数据。
     """
-    from bot import Bot
+    from bot_turn_orchestrator import BotTurnOrchestrator
     from services.tool_model_gateway import ModelToolGateway
 
-    class _Stub:
-        model_tool_gateway = ModelToolGateway.__new__(ModelToolGateway)
-        web_search_service = None
-        skill_service = None
-
-    _Stub.model_tool_gateway.marker = "tool_call"
-    extract = Bot._extract_tool_visible_text
-    stub = _Stub()
+    gateway = ModelToolGateway.__new__(ModelToolGateway)
+    gateway.marker = "tool_call"
+    orchestrator = BotTurnOrchestrator.__new__(BotTurnOrchestrator)
+    orchestrator._model_tool_gateway_provider = lambda: gateway
+    orchestrator._web_search_service_provider = lambda: None
+    orchestrator._skill_service_provider = lambda: None
+    extract = orchestrator.extract_tool_visible_text
 
     # 伪块被丢掉后留下的那个换行会保留：正文与工具标记之间的空白由调用方 strip。
-    visible, pending = extract(stub, LEAKED + "\n<tool_call>{\"name\": \"a\"}</tool_call>", flush=True)
+    visible, pending = extract(LEAKED + "\n<tool_call>{\"name\": \"a\"}</tool_call>", flush=True)
     assert visible == BODY + "\n"
     assert pending == ""
 
     # 未收完的机器协议标记仍要暂存，交给下一段流式数据补齐（流式路径 flush=False）。
-    visible, pending = extract(stub, "正文<tool_ca")
+    visible, pending = extract("正文<tool_ca")
     assert visible == "正文"
     assert pending == "<tool_ca"
 
     # 收尾时若 Text 只含正文 + 伪块，伪块整块消失。
-    visible, pending = extract(stub, LEAKED, flush=True)
+    visible, pending = extract(LEAKED, flush=True)
     assert visible == BODY
     assert pending == ""
 

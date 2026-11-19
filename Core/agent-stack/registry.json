@@ -28,6 +28,7 @@
       "working_directory": ".",
       "command": "python",
       "arguments": ["-u", "starter.py", "asr"],
+      "process_priority": "above_normal",
       "health": {
         "type": "tcp",
         "host": "127.0.0.1",
@@ -35,8 +36,23 @@
       }
     },
     {
-      "name": "mllm",
+      "name": "llm",
       "enabled": true,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "llm_deepseek_online",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "llm"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11000
+      }
+    },
+    {
+      "name": "mllm",
+      "enabled": false,
       "runner": "conda",
       "start_order": 10,
       "environment": "llm_deepseek_online",
@@ -80,6 +96,21 @@
       }
     },
     {
+      "name": "mllm-memory",
+      "enabled": false,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "llm_deepseek_online",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "mllm", "-memory"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 10010
+      }
+    },
+    {
       "name": "web_search",
       "enabled": true,
       "runner": "conda",
@@ -92,6 +123,36 @@
         "type": "tcp",
         "host": "127.0.0.1",
         "port": 11012
+      }
+    },
+    {
+      "name": "ocr",
+      "enabled": false,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "MyAI",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "ocr"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11004
+      }
+    },
+    {
+      "name": "imgcap",
+      "enabled": false,
+      "runner": "conda",
+      "start_order": 10,
+      "environment": "MyAI",
+      "working_directory": ".",
+      "command": "python",
+      "arguments": ["-u", "starter.py", "imgcap"],
+      "health": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11003
       }
     }
   ]

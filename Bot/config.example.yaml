@@ -60,6 +60,14 @@ pipeline:
       onnx_provider: 'CPUExecutionProvider'
       max_length: 256
       api_url: ''
+      # Sliding window (seconds) of recent audio fed to TurnSense per candidate
+      # chunk. Endpoint detection does not need the whole utterance, while its
+      # cost grows with the input length (measured: 0.5 s -> 34 ms, 6 s -> 102 ms,
+      # 8 s -> 137 ms per 0.24 s chunk), so this caps the per-chunk overhead on
+      # long utterances. `0` disables the window (feed everything, old behaviour).
+      # It only bounds what TurnSense sees: the spoken duration used by the TTS
+      # barge-in threshold is tracked separately.
+      window_audio_sec: 4.0
       # Pause timeout for flushing microphone candidate audio chunks.
       timeout: 0.6
       # Delay after TurnSense predicts `complete` before final LLM commit.
@@ -109,6 +117,8 @@ pipeline:
     predict_url: 'http://127.0.0.1:11000/llm/predict'
     # The URL for streaming LLM prediction requests.
     stream_predict_url: 'http://127.0.0.1:11000/llm/stream-predict'
+    stream_output: True # 是否启用纯文本 LLM 流式输出；False 时保持非流式逻辑
+    stream_tts_by_sentence: True # 流式输出时，按分句将增量文本提交给 TTS
 
   mllm:
     enable: True
@@ -132,9 +142,10 @@ pipeline:
 
   # Configuration for the Image Captioning pipeline.
   img_cap:
-    # 本地没有部署图片描述服务，且 Core/agent-stack/registry.json 里也没有对应服务，
-    # 保持关闭以免每次请求都落到别的服务上拿到 404。
-    # 若要启用：Core/config.yaml 的 ImgCap 段端口是 11003，两边必须一致。
+    # 本地没有部署图片描述服务。Core/agent-stack/registry.json 里已登记 imgcap（端口 11003），
+    # 但 Core/config.yaml 的 Startup 段里默认 imgcap: false，保持关闭以免每次请求都落到别的服务上拿到 404。
+    # 若要启用：把 Core/config.yaml 里 Startup.imgcap 改成 true（或临时
+    # `python agent_stack.py start --only imgcap`），并确认 Core/config.yaml 的 ImgCap 段端口是 11003。
     enable: False
     # The ID of the model used for image captioning. 
     # `Salesforce/blip-image-captioning-large` is supported only.
@@ -215,6 +226,14 @@ service:
     max_payload_chars: 32000
     max_bytes: 10485760 # 单个日志文件 10 MiB 后轮转
     backup_count: 5
+  harness_recall: # 让模型回读本次运行的工具记录（工具名 harness_recall）
+    enable: true # 改动后需重启才生效
+    max_scan_bytes: 4194304 # 单次回读从日志末尾向前扫描的字节上限
+    max_scan_lines: 5000 # 单次回读最多检查的日志行数
+    max_records: 8 # 一次索引最多返回多少条工具调用
+    max_summary_chars: 200 # 索引里参数/结果摘要的字符上限
+    default_turns_back: 2 # scope=recent 默认往前看几个 turn
+    max_turns_back: 5 # turns_back 的硬上限
   # 通用工具执行与工具循环安全限制。
   tool:
     model_marker: "tool_call" # 项目独立协议；标记内为 name/arguments JSON 对象
@@ -392,7 +411,7 @@ service:
     # 说明：Web 工具的协议标记由 service.web_search.model_marker 决定（默认 web_tool），
     # 意图路由本身不读 model_marker，原先这里的 model_marker 键从未生效，已删除。
   # 联网工具（search / weather / news / steam / github / exchange_rate）。
-  # 由 Core 的 WebSearch 服务提供，必须同时在 Core/agent-stack/registry.json 中启用。
+  # 由 Core 的 WebSearch 服务提供，必须同时在 Core/config.yaml 的 Startup 段里开 web_search。
   # mode: disable 会让模型完全无法自主联网，也不发关键词快路请求。
   web_search:
     mode: enable # disable / local_only / enable；enable 允许模型自行决定联网

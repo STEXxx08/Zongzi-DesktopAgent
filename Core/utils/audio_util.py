@@ -1,6 +1,11 @@
-import numpy as np
+from __future__ import annotations
+
 import io
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 def convert_to_mono(input_file, output_file, sample_rate: int = 16000):
     # ffmpeg command to convert audio to mono wav

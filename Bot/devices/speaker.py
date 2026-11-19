@@ -9,11 +9,9 @@ from loguru import logger
 
 from common.concurrent.abs_runnable import ThreadRunnable
 from common.concurrent.killable_thread import KillableThread
+from common.utils.math_util import clamp
 from event.event_data import DeviceSpeakerPlayEvent
 from event.event_emitter import emitter
-
-import soundfile as sf
-import sounddevice as sd
 
 
 class SystemSoundEnum(str, Enum):
@@ -48,7 +46,6 @@ class Speaker(ThreadRunnable):
 
     def start(self):
         super().start()
-        self._stop_flag = False
         self._semaphore.set()
         self._speaker_thread.start()
 
@@ -132,13 +129,13 @@ class Speaker(ThreadRunnable):
         else:
             pygame = self._get_pygame()
             sound = pygame.mixer.Sound(path)
-            sound.set_volume(min(max(volume, 0.0), 1.0))
+            sound.set_volume(clamp(0.0, 1.0, volume))
             sound.play()
 
     def _sync_playsound(self, path: Path, volume: float = 1.0):
         pygame = self._get_pygame()
         pygame.mixer.music.load(path)
-        pygame.mixer.music.set_volume(min(max(volume, 0.0), 1.0))
+        pygame.mixer.music.set_volume(clamp(0.0, 1.0, volume))
         pygame.mixer.music.play()
         while pygame.mixer.music.get_busy():
             if self._interrupt_event.is_set() or self._stop_flag:
@@ -203,6 +200,9 @@ class Speaker(ThreadRunnable):
 
     def _playsound_with_device(self, path: Path, device: str | None, volume: float = 1.0):
         """使用 sounddevice 播放到指定设备；device 为 None 时使用默认设备。"""
+        import sounddevice as sd
+        import soundfile as sf
+
         audio_data, sample_rate = sf.read(path, dtype='float32')
         audio_data = (audio_data * volume).clip(-1.0, 1.0)
 

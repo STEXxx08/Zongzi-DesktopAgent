@@ -1,5 +1,6 @@
 import json
 from condata.harness import record_protocol_error
+from functools import lru_cache
 import logging
 import re
 from html import escape
@@ -18,6 +19,18 @@ from services.tool_model_gateway import compose_tool_instructions
 
 
 logger = logging.getLogger(__name__)
+
+_USER_INVOCATION_RE = re.compile(r"(?<!\S)/([a-z0-9]+(?:-[a-z0-9]+)*)(?!\S)")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+@lru_cache(maxsize=16)
+def _directive_tag_pattern(marker: str) -> re.Pattern[str]:
+    escaped = re.escape(marker)
+    return re.compile(
+        rf"<{escaped}>\s*(\{{.*?\}})\s*</{escaped}>",
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 @dataclass(frozen=True)
@@ -126,11 +139,7 @@ class SkillService:
         if matched_create:
             return create_visible, create_directive
 
-        marker = re.escape(self.config.model_marker)
-        pattern = re.compile(
-            rf"<{marker}>\s*(\{{.*?\}})\s*</{marker}>",
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        pattern = _directive_tag_pattern(self.config.model_marker)
         match = pattern.search(response or "")
         if match is None:
             return response, None
@@ -157,11 +166,7 @@ class SkillService:
         self,
         response: str,
     ) -> tuple[str, ModelSkillCreateDirective | None, bool]:
-        marker = re.escape(self.config.model_create_marker)
-        pattern = re.compile(
-            rf"<{marker}>\s*(\{{.*?\}})\s*</{marker}>",
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        pattern = _directive_tag_pattern(self.config.model_create_marker)
         match = pattern.search(response or "")
         if match is None:
             return response, None, False
@@ -212,7 +217,7 @@ class SkillService:
         """解析空白边界内的 /name，并加载允许用户调用的 Skill。"""
         if not self.config.enable:
             return None
-        match = re.search(r"(?<!\S)/([a-z0-9]+(?:-[a-z0-9]+)*)(?!\S)", text or "")
+        match = _USER_INVOCATION_RE.search(text or "")
         if match is None:
             return None
         name = match.group(1)
@@ -300,7 +305,7 @@ class SkillService:
 
     @staticmethod
     def _normalize_description(value: str) -> str:
-        return re.sub(r"\s+", " ", value).strip()
+        return _WHITESPACE_RE.sub(" ", value).strip()
 
     @staticmethod
     def _json_bool(value: Any, field_name: str) -> bool:

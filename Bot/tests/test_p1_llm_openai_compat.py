@@ -213,3 +213,28 @@ def test_http_backend_path_untouched(monkeypatch):
     pipeline.predict(LLMQuery(text="hi", history=[]))
 
     assert called.get("hit") is True
+
+
+def test_openai_format_records_harness_model_span(monkeypatch):
+    """openai_format=true 不走 super().predict()，必须自己挂 @trace_model_call 记录调用与用量。"""
+    import condata.harness as harness_module
+
+    events = []
+    monkeypatch.setattr(
+        harness_module,
+        "record_event",
+        lambda kind, event, **fields: events.append((kind, event, fields)),
+    )
+    completions = _FakeCompletions(content="已记录")
+    pipeline = _pipeline_with_fake(monkeypatch, _config("deepseek-chat"), completions)
+    query = LLMQuery(text="测试观测", history=[])
+
+    prediction = pipeline.predict(query)
+
+    assert prediction is not None
+    assert getattr(query, "_harness_call_id", "").startswith("trace_")
+    finished = [fields for kind, event, fields in events if kind == "model" and event == "finished"]
+    assert len(finished) == 1
+    assert finished[0]["status"] == "success"
+    assert finished[0]["usage"]["total_tokens"] == 18
+

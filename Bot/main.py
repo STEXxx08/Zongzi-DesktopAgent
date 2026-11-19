@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import sys
 import threading
-from bot import Bot
+from typing import TYPE_CHECKING
+
 from loguru import logger
 from manager.config_manager import get_config
+
+if TYPE_CHECKING:
+    from bot import Bot
 
 # 强制退出兜底：正常收尾会取消这个看门狗；只有收尾卡死（例如阻塞在打不断的
 # C 扩展或没有超时的 HTTP 调用里）才会走到这里，避免进程残留。
@@ -89,4 +95,6 @@ if __name__ == '__main__':
         )
     else:
         # 纯控制台方式（桌宠界面已关闭）
+        from bot import Bot
+
         sys.exit(asyncio.run(_run_console_bot(Bot())))

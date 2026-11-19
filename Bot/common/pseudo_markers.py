@@ -43,11 +43,16 @@ _NAMES_PATTERN = "|".join(re.escape(name) for name in sorted(PSEUDO_BLOCK_NAMES,
 
 # 起始标签：`<system>`、`< system >`、`<system lang="zh">` 都算，但不吃 `<systemx>`。
 _OPEN_TAG = re.compile(rf"<\s*(?P<name>{_NAMES_PATTERN})(?:\s[^<>]*)?\s*>", re.IGNORECASE)
+_CLOSE_TAGS: dict[str, re.Pattern[str]] = {
+    name: re.compile(rf"<\s*/\s*{re.escape(name)}\s*>", re.IGNORECASE)
+    for name in PSEUDO_BLOCK_NAMES
+}
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 def _is_partial_pseudo_tag(buffer: str) -> bool:
     """buffer 整体是不是一个"还没收完的伪标签开头"，例如 `<sys`、`</thin`。"""
-    tail = re.sub(r"\s+", "", buffer).casefold()
+    tail = _WHITESPACE_RE.sub("", buffer).casefold()
     if not tail.startswith("<"):
         return False
     body = tail[1:]
@@ -91,9 +96,7 @@ def iter_visible_segments(buffer: str, flush: bool = False):
         if opened is None:
             break
 
-        closing = re.compile(
-            rf"<\s*/\s*{re.escape(opened.group('name'))}\s*>", re.IGNORECASE
-        ).search(buffer, opened.end())
+        closing = _CLOSE_TAGS[opened.group("name").casefold()].search(buffer, opened.end())
         if closing is None:
             # 没有配对的结束标签：要么还在流式传输（含起始标签一起暂存等下一块），
             # 要么模型就写到一半结束了（连块内文本一起丢弃）。

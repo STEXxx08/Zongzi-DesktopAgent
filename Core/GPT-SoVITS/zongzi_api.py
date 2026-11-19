@@ -98,13 +98,13 @@ RESP:
 import os
 import sys
 import traceback
-from typing import Generator
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 sys.path.append("%s/GPT_SoVITS" % (now_dir))
 
 import argparse
+import asyncio
 import subprocess
 import wave
 import signal
@@ -112,15 +112,14 @@ import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi import FastAPI, UploadFile, File
 import uvicorn
 from io import BytesIO
 from tools.i18n.i18n import I18nAuto
 from GPT_SoVITS.TTS_infer_pack.TTS import TTS, TTS_Config
 from GPT_SoVITS.TTS_infer_pack.text_segmentation_method import get_method_names as get_cut_method_names
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from loguru import logger
+from starlette.concurrency import run_in_threadpool
 # print(sys.path)
 i18n = I18nAuto()
 cut_method_names = get_cut_method_names()
@@ -144,6 +143,75 @@ print(tts_config)
 tts_pipeline = TTS(tts_config)
 
 APP = FastAPI()
+
+# ── 推理串行化 ──────────────────────────────────────────────────────────────
+# tts_pipeline 是单实例，且 run() 有副作用（改 self.stop_flag、把
+# t2s_model.model.infer_panel 换成并行/朴素版本），两个请求同时跑会互相踩状态、
+# 吐出交错的音频。而 Bot 侧多段文本是按提交顺序逐段合成、按序播放的
+# （Bot/bot.py:94 的 tts_thread_pool 是单 worker），所以服务端必须做到
+# 「整段请求串行、先到先服务」，不能变成真并发。
+#
+# 以前是靠 async def 端点里直接同步跑推理「顺带」串行，代价是整场合成期间
+# 事件循环被占住，/control、/set_* 这些请求全部堵在后面。现在拆开：
+#   · asyncio.Lock —— 保顺序（它的等待队列是 FIFO，先 acquire 的先跑）
+#   · 推理丢线程池 —— 保响应（阻塞的 GPU/CPU 活儿不再占事件循环）
+# 注意：这把锁是进程内的，多 worker 启动时各进程各一把，串行只在单 worker
+# 下成立（见文件末尾 uvicorn.run(workers=1)）。
+_INFER_LOCK: asyncio.Lock | None = None
+
+
+def _get_infer_lock() -> asyncio.Lock:
+    """惰性创建（绑定当前事件循环）。"""
+    global _INFER_LOCK
+    if _INFER_LOCK is None:
+        _INFER_LOCK = asyncio.Lock()
+    return _INFER_LOCK
+
+
+_STREAM_END = object()
+
+
+def _next_chunk(generator):
+    """在线程池里取下一段音频；生成器结束返回 _STREAM_END。"""
+    try:
+        return next(generator)
+    except StopIteration:
+        return _STREAM_END
+
+
+def _synthesize_blocking(req: dict, media_type: str) -> bytes:
+    """整段非流式合成。同步函数，必须在线程池里跑。"""
+    tts_generator = tts_pipeline.run(req)
+    sr, audio_data = next(tts_generator)
+    return pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
+
+
+async def _stream_audio(req: dict, media_type: str, lock: asyncio.Lock):
+    """流式合成：把同步生成器搬到线程池里逐块取，事件循环全程保持响应。
+
+    lock 由调用方在返回 StreamingResponse 之前按到达顺序获取，本生成器负责在
+    所有退出路径（正常结束 / 客户端断连触发 aclose / 内部异常）上释放它。
+    """
+    try:
+        tts_generator = tts_pipeline.run(req)
+        if media_type == "wav":
+            yield wave_header_chunk()
+            media_type = "raw"
+        while True:
+            item = await run_in_threadpool(_next_chunk, tts_generator)
+            if item is _STREAM_END:
+                break
+            sr, chunk = item
+            packed = await run_in_threadpool(pack_audio, BytesIO(), chunk, sr, media_type)
+            yield packed.getvalue()
+    except Exception as e:
+        logger.error(f"TTS stream failed: {e}\n{traceback.format_exc()}")
+        raise
+    finally:
+        if lock.locked():
+            lock.release()
+
+
 class TTS_Request(BaseModel):
     text: str = None
     text_lang: str = None
@@ -312,25 +380,21 @@ async def tts_handle(req:dict):
     if streaming_mode or return_fragment:
         req["return_fragment"] = True
     
+    lock = _get_infer_lock()
+
+    if streaming_mode:
+        # 先按到达顺序拿到锁再返回响应：这一段音频吐完之前别的合成请求进不来，
+        # 所以分句音频不会和别的请求交错，多段文本的播放顺序就是提交顺序。
+        await lock.acquire()
+        return StreamingResponse(_stream_audio(req, media_type, lock), media_type=f"audio/{media_type}")
+
     try:
-        tts_generator=tts_pipeline.run(req)
-        
-        if streaming_mode:
-            def streaming_generator(tts_generator:Generator, media_type:str):
-                if media_type == "wav":
-                    yield wave_header_chunk()
-                    media_type = "raw"
-                for sr, chunk in tts_generator:
-                    yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
-            # _media_type = f"audio/{media_type}" if not (streaming_mode and media_type in ["wav", "raw"]) else f"audio/x-{media_type}"
-            return StreamingResponse(streaming_generator(tts_generator, media_type, ), media_type=f"audio/{media_type}")
-    
-        else:
-            sr, audio_data = next(tts_generator)
-            audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
-            return Response(audio_data, media_type=f"audio/{media_type}")
+        # 锁只管"排队"，推理本身在线程池里跑：等待期间事件循环照常处理
+        # /control、/set_* 等请求，而不是整场合成都被卡住。
+        async with lock:
+            audio_data = await run_in_threadpool(_synthesize_blocking, req, media_type)
+        return Response(audio_data, media_type=f"audio/{media_type}")
     except Exception as e:
-        import traceback
         error_trace = traceback.format_exc()
         logger.error(f"TTS failed: {e}\n{error_trace}")
         return JSONResponse(status_code=400, content={"message": "tts failed", "Exception": str(e), "traceback": error_trace})
@@ -412,21 +476,30 @@ from condata.pipeline.tts import TTSQuery
 @APP.post("/tts/predict")
 async def tts_post_endpoint(request: TTSQuery):
     req = request.model_dump()
-    req = _adapt_dict(req).dict()
+    req = _adapt_dict(req).model_dump()
     req['streaming_mode'] = False
     return await tts_handle(req)
 
 @APP.post("/tts/stream-predict")
 async def stream_tts_post_endpoint(request: TTSQuery):
     req = request.model_dump()
-    req = _adapt_dict(req).dict()
+    req = _adapt_dict(req).model_dump()
     req['streaming_mode'] = True
     return await tts_handle(req)
+
+
+@APP.post("/tts/abort")
+async def tts_abort_endpoint():
+    """不等待推理锁，置位 stop_flag 以尽快中止当前合成并释放锁。"""
+    tts_pipeline.stop()
+    return JSONResponse(status_code=200, content={"status": "aborted"})
 
 @APP.get("/set_refer_audio")
 async def set_refer_aduio(refer_audio_path: str = None):
     try:
-        tts_pipeline.set_ref_audio(refer_audio_path)
+        # 与合成共用同一把锁：不能在合成途中换参考音频（prompt_cache 会被踩）
+        async with _get_infer_lock():
+            await run_in_threadpool(tts_pipeline.set_ref_audio, refer_audio_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": f"set refer audio failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})
@@ -455,7 +528,8 @@ async def set_gpt_weights(weights_path: str = None):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "gpt weight path is required"})
-        tts_pipeline.init_t2s_weights(weights_path)
+        async with _get_infer_lock():
+            await run_in_threadpool(tts_pipeline.init_t2s_weights, weights_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": f"change gpt weight failed", "Exception": str(e)})
 
@@ -467,7 +541,8 @@ async def set_sovits_weights(weights_path: str = None):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "sovits weight path is required"})
-        tts_pipeline.init_vits_weights(weights_path)
+        async with _get_infer_lock():
+            await run_in_threadpool(tts_pipeline.init_vits_weights, weights_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": f"change sovits weight failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})

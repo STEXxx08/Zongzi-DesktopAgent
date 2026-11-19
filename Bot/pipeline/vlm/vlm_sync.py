@@ -4,7 +4,6 @@ import requests
 import base64
 from pathlib import Path
 from typing import Optional
-from PIL import Image
 import io
 
 from requests import Response
@@ -37,6 +36,8 @@ class VLMSyncPipeline(AbstractImagePipeline):
         prompt = query.prompt or "请描述这张图片"
 
         # 读取并压缩图片
+        from PIL import Image
+
         image = Image.open(img_path).convert("RGB")
         # 计算等比缩放后的尺寸，确保不超过 max_pixels
         width, height = image.size

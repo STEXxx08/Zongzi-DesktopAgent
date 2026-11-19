@@ -1,9 +1,12 @@
+from typing import Literal
+
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
 from ui.config import ChatWindowConfig
 from services.browser.config import BrowserServiceConfig
 from services.harness_config import HarnessLogConfig
+from services.harness_recall.config import HarnessRecallConfig
 
 from services.intent_router.config import IntentRouterConfig
 from services.microphone.config import MicrophoneServiceConfig
@@ -15,6 +18,26 @@ from services.web_search.config import WebSearchServiceConfig
 
 class DesktopShellConfig(BaseModel):
     enable: bool = Field(default=True, description="Start the desktop mascot shell instead of the console runtime.")
+    avatar_mode: Literal["vector", "sprite", "live2d"] = Field(
+        default="vector",
+        description="桌宠形象渲染模式：vector（内置矢量猫娘）、sprite（自定义图片/动图立绘包）、live2d（Live2D 模型）。",
+    )
+    avatar_path: str = Field(
+        default="",
+        description="自定义形象资源路径：sprite 模式为立绘目录或图片路径，live2d 模式为 .model3.json 文件路径。",
+    )
+    pet_scale: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="桌宠窗口与画布缩放倍率（0.5 ~ 2.0）。",
+    )
+    pet_opacity: float = Field(
+        default=1.0,
+        ge=0.3,
+        le=1.0,
+        description="桌宠窗口整体不透明度（0.3 ~ 1.0）。",
+    )
     always_on_top: bool = Field(default=True, description="Keep the mascot window above other windows.")
     bubble_offset_x: int = Field(default=0, ge=-2400, le=2400, description="Horizontal adjustment in pixels from the default speech bubble position.")
     bubble_offset_y: int = Field(default=0, ge=-1600, le=1600, description="Vertical adjustment in pixels from the default speech bubble position.")
@@ -60,6 +83,7 @@ class ToolServiceConfig(BaseModel):
 
 class ServiceConfig(BaseModel):
     harness: HarnessLogConfig = Field(default_factory=HarnessLogConfig)
+    harness_recall: HarnessRecallConfig = Field(default_factory=HarnessRecallConfig)
     browser: BrowserServiceConfig = Field(default_factory=BrowserServiceConfig)
     tool: ToolServiceConfig = Field(default_factory=ToolServiceConfig)
     mcp: MCPServiceConfig = Field(default_factory=MCPServiceConfig)
