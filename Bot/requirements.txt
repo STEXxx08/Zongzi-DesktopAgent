@@ -41,7 +41,7 @@ pyautogui==0.9.54
 # Linux 下额外需要：mss
 
 # ---- 网络 / 模型接口 ----
-websockets==15.1
+websockets==15.0.1
 openai==2.41.1
 
 # ---- TurnSense 语义端点检测（Bot 侧本地推理，纯 CPU）----
