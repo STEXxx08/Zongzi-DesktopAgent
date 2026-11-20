@@ -15,7 +15,11 @@ kaldi-native-fbank==1.22.3
 #         降噪自动关闭，其余流程不受影响。它本身会连带装 torch。
 # clearvoice
 
-# ---- TurnSense 的 transformers 后端（pipeline/asr/turnsense.py:398，非默认路径）----
-# 默认走 onnx；这条路径要额外装 torch + transformers（Bot 一般不需要 GPU）
+# ---- Live2D 桌宠渲染（ui/mascot/live2d_view.py:36，动态 import live2d.v3）----
+# 缺了它：Live2D 模式会平滑回退到内置矢量猫娘渲染，不影响界面与功能。
+# live2d-py==0.5.0
+
+# ---- TurnSense 的 transformers 后端（pipeline/asr/turnsense.py:398-399，非默认路径）----
+# transformers==5.13.0 已包含在 Bot/requirements.txt（供 BGE 与 TurnSense 文本 ONNX 分词器使用，不依赖 torch）；
+# 仅在把 turnsense.backend 切换到 PyTorch 推理后端时才需额外安装 torch（Bot 默认走 onnx，不需要 GPU）。
 # torch
-# transformers

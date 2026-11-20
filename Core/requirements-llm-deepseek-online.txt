@@ -2,15 +2,16 @@
 # conda 环境：llm_deepseek_online
 # Python：3.10 ~ 3.13；不需要 GPU（全是纯 Python 包）
 #
-# ── 这个环境跑三个服务，每个服务有自己的依赖文件 ─────────────────────────────
+# ── 这个环境跑在线推理与检索服务（llm / llm-memory / mllm / mllm-memory / web_search）──
 #   本文件 = **公共部分**；各服务的专属依赖放在它自己的目录下，你用到哪个就装哪个：
 #
-#     服务        实现（Core/config.yaml 的 id）        依赖文件
+#     服务         实现（Core/config.yaml 的 id）       依赖文件
 #     ---------------------------------------------------------------------------
-#     llm         deepseek_online/…（在线 API）          Core/llm/deepseek_online/requirements.txt
-#     llm-memory  同上（同一套代码，换端口）             （同上）
-#     mllm        mllm_online/qwen（阿里云百炼）         Core/mllm/requirements.txt
-#     web_search  SearXNG                                Core/web_search/requirements.txt
+#     llm          deepseek_online/…（在线 API）         Core/llm/deepseek_online/requirements.txt
+#     llm-memory   同上（同一套代码，换端口）            （同上）
+#     mllm         mllm_online/qwen（阿里云百炼）        Core/mllm/requirements.txt
+#     mllm-memory  同上（与 mllm 同源换端口）            （同上）
+#     web_search   SearXNG                               Core/web_search/requirements.txt
 #
 #   安装 = 公共（本文件）+ 你要跑的那几份，例如全都要：
 #     conda create -n llm_deepseek_online python=3.11
@@ -30,7 +31,6 @@
 
 # ---- 公共：三个服务都要 ----
 pydantic>=2.5,<3
-pydantic-core
 loguru
 requests
 PyYAML

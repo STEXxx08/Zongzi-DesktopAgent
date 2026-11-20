@@ -20,34 +20,37 @@ typeguard==4.5.2
 loguru==0.7.3
 pyyaml==6.0.3
 requests==2.34.2
-retry==0.9.2
-watchdog==6.0.0
-python-magic==0.4.27
 
 # ---- 音频 / 语音 ----
 numpy==1.26.4
 scipy==1.17.1
 soundfile==0.12.1
-sounddevice==0.5.5         # devices/speaker.py:16 顶层 import（播放），必需
-pydub==0.25.1
+sounddevice==0.5.5         # pipeline/asr/desktop_capture.py:3 顶层 import；devices/speaker.py:203 惰性 import（指定设备播放）
+pydub==0.25.1              # common/utils/audio_util.py:23（get_audio_info 惰性 import）
 pyaudio==0.2.14
 webrtcvad==2.0.10
+setuptools==69.5.1         # webrtcvad==2.0.10 运行时第 1 行 import pkg_resources，必须 setuptools<81（非开发依赖，不可删；缺 MSVC 编不动 webrtcvad 时改用 pip install webrtcvad-wheels）
 pygame==2.6.1
-librosa==0.10.2.post1
+librosa==0.10.2.post1      # pipeline/asr/baidu_asr.py:38、pipeline/asr/turnsense.py:337（音频重采样惰性 import）
 
 # ---- 图像 / 屏幕 ----
 pillow==12.2.0
 pyautogui==0.9.54
+pygetwindow==0.0.9         # devices/screen/win_screen.py:6,9 顶层直接 import
 # Linux 下额外需要：mss
 
 # ---- 网络 / 模型接口 ----
-websockets==15.0.1
+websockets==15.0.1         # common/web/json_ws.py、zrl_ws.py（保留的 WebSocket 服务端模块）
 openai==2.41.1
+aiohttp==3.14.1            # pipeline/base/base_async.py:4,6 顶层 import，异步管线与离线测试使用
+langchain-core==1.4.6      # agent/api.py:62、agent/adaptor.py:4-8 使用；运行时被 bot_event_binder.py:226 / bot_tts_scheduler.py:161（sentiment_analyse）与 bot_vision_controller.py:203（translate）调用，且离线测试直接覆盖；仅 langchain/langgraph 已移除
 
-# ---- TurnSense 语义端点检测（Bot 侧本地推理，纯 CPU）----
-# turnsense.backend 默认是 'onnx'；缺这个包时会静默退化成 heuristic 规则判定，
+# ---- TurnSense / BGE 本地 ONNX 推理（Bot 侧，纯 CPU）----
+# 覆盖 TurnSense 语义端点检测（pipeline/asr/turnsense.py:199）与 BGE 中文句向量嵌入（services/embedding/bge_onnx.py:88，意图路由与记忆 RAG 共用）。
+# turnsense.backend 默认是 'onnx'；缺 onnxruntime 时会静默退化成 heuristic 规则判定，
 # 端点检测质量明显下降（日志里有一条 warning）。不需要 GPU，CPU 版即可。
 onnxruntime==1.27.0
+transformers==5.13.0       # BGE 向量检索/意图路由（services/embedding/bge_onnx.py:89）与 TurnSense 文本 ONNX（pipeline/asr/turnsense.py:220,366）的 AutoTokenizer 均需此包；纯 CPU 轮子，不依赖 torch
 # 音频 ONNX 前端还要 kaldi_native_fbank（pipeline/asr/turnsense.py:36,62），
 # 它是**可选**的：缺了就只用文本 ONNX，见 Bot/requirements-optional.txt
 
@@ -61,7 +64,7 @@ pynput==1.8.2
 # ---- 开发 / 测试（非开发者可删）----
 pytest==9.0.3
 pytest-asyncio==1.4.0
-setuptools==69.5.1
+flask==3.1.3               # tests/test_p2_enhancements.py:337 动态加载 Core/starter.py（间接 import Core/common/abs_app.py:1 的 flask），tests/pipeline/server.py 亦使用
 
 # ============================================================================
 # 说明：Bot 侧默认**不需要 torch / GPU**（全部模型推理都通过 HTTP 发给 Core）。
@@ -73,14 +76,20 @@ setuptools==69.5.1
 
 # ============================================================================
 # 已移除（确认无代码引用，或对应模块已删除）：
-#   live2d-py / PyQt5 / gradio            Live2D 未接入；WebUI 已删除（P1-23/24）
+#   PyQt5 / gradio                        WebUI 已删除（P1-23/24），界面改用 PySide6
 #   selenium                              浏览器读取改用自带 HTTP reader
-#   flask                                 旧配置页依赖
-#   langchain / langgraph / langchain-core  agent/ 是历史遗留，运行时不引用
+#   langchain / langgraph                 agent/api.py 仅使用 langchain-core
 #   bilibili-api-python / twitchAPI / ncatbot  直播与 QQ 机器人功能未使用
-#   netifaces / injector / transitions     无 import
+#   retry / watchdog / python-magic       全仓库无 import（main.py 的 watchdog 为局部计时器变量）
+#   injector / transitions                无 import
+#   netifaces                             仅未启用的 common/web/json_ws.py → common/utils/web_util.py:3 引用，运行时不触发
 #
-# 已加回（此前误判为"无引用"被删）：
-#   sounddevice   devices/speaker.py:16、pipeline/asr/desktop_capture.py:3 顶层 import
-#   kaldi_native_fbank  pipeline/asr/turnsense.py:36,62 —— 属可选，放在 requirements-optional.txt
+# 已移至可选（Bot/requirements-optional.txt）：
+#   live2d-py                             已接入 ui/mascot/live2d_view.py（缺了回退内置矢量猫娘）
+#
+# 已加回 / 调整：
+#   sounddevice                           devices/speaker.py:203（惰性）、pipeline/asr/desktop_capture.py:3（顶层 import）
+#   kaldi_native_fbank                    pipeline/asr/turnsense.py:36,62 —— 属可选，放在 requirements-optional.txt
+#   setuptools                            移至音频段（webrtcvad 运行时 import pkg_resources，不可当开发依赖删掉）
+#   aiohttp / langchain-core / transformers / pygetwindow / flask  按实际运行时与测试引用补回
 # ============================================================================

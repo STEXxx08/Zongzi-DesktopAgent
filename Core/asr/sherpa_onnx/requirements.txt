@@ -1,5 +1,5 @@
 # 路线 A：sherpa-onnx
-# 实现：Core/asr/sherpa_onnx/model.py:26
+# 实现：Core/asr/sherpa_onnx/model.py:27
 # 当前 Core/config.yaml 的 ASR.id 就是这条；**不需要 torch、不需要 flash-attn**
 #
 # 安装：

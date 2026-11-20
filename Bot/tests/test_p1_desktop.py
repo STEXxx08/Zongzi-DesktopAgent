@@ -433,6 +433,7 @@ def test_settings_dialog_loads_six_pages_and_detects_restart():
 
 
 def test_desktop_shell_has_position_helpers():
+    pytest.importorskip("PySide6")
     from ui.desktop_shell import DesktopShell
 
     for name in (
@@ -901,6 +902,7 @@ def test_pet_window_clamps_to_screen_after_scale_up():
 
 
 def test_avatar_presets_mapping_and_resolve():
+    pytest.importorskip("PySide6")
     from ui.mascot import preset_key_for, resolve_preset
 
     assert preset_key_for("vector", "") == "vector"

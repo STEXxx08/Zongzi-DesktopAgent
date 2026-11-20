@@ -31,4 +31,5 @@ loguru
 requests
 PyYAML
 typing-extensions
-numpy==2.4.6             # Core/utils/audio_util.py:1
+flask==3.1.3             # Core/asr/app.py:3、Core/common/abs_app.py:1、Core/utils/web_util.py:3
+numpy==2.4.6             # Core/asr/*/model.py:6（三条 ASR 路线均顶层 import numpy；audio_util.py 仅 TYPE_CHECKING）

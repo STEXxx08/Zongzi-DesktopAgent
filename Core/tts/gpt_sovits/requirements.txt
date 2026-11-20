@@ -1,13 +1,13 @@
-# 实现：Core/tts/gpt_sovits/model.py —— Core 侧的 tts 服务（HTTP 转发给 GPT-SoVITS）
-# 环境：GPTSoVits    入口：starter.py tts
-#
-# ⚠️ registry.json 现在用的是 GPT-SoVITS 自己的 zongzi_api.py，**不是**这一条。
-#    想用这一条再装本文件；两条都装也能共存（端口不同）。
+# ⚠️ 占位桩提示：Core/tts/app.py 与 Core/tts/gpt_sovits/model.py 目前均为上游遗留的
+#    未实现占位桩（调用直接抛 NotImplementedError），并非可用的 HTTP 转发服务。
+#    实际 TTS 服务走 Core/GPT-SoVITS/zongzi_api.py（见 Core/requirements-gpt-sovits.txt +
+#    Core/GPT-SoVITS/requirements.txt）；仅在测试 starter.py tts 导入时才会用到本文件。
 
-flask==3.1.3            # Core/tts/app.py（HTTP 服务层）
+flask==3.1.3            # Core/common/abs_app.py:1（HTTP 基类）
 pydantic
 loguru
 requests
+PyYAML                  # Core/starter.py:5（配置加载）
 
 # 注意：真正的推理在 Core/GPT-SoVITS/ 里跑，那边自己的依赖见
 # Core/GPT-SoVITS/requirements.txt；本文件不含任何推理依赖。

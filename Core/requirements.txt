@@ -26,8 +26,8 @@
 #
 #   [GPTSoVits]   服务 tts
 #     公共      Core/requirements-gpt-sovits.txt
-#     实现①     Core/GPT-SoVITS/requirements.txt + environment.yaml（当前在用）
-#     实现②     Core/tts/gpt_sovits/requirements.txt
+#     实现①     Core/GPT-SoVITS/requirements.txt（当前在用；同目录 environment.yaml 为早期 Linux 导出，Windows 快照见 环境快照/environment-GPTSoVits.yml）
+#     实现②     Core/tts/gpt_sovits/requirements.txt（上游未实现占位桩，实际均走 ①）
 #
 #   [按需]        可选服务
 #     索引      Core/requirements-optional.txt
@@ -39,8 +39,8 @@
 #     界面      Bot/requirements-ui.txt
 #     可选      Bot/requirements-optional.txt
 #
-#   Python 版本要求、以及"哪些功能会限制 Python 版本"，见 README 2.5。
-#   完整实测快照（conda + pip 全量）见 环境快照/environment-<环境名>.yml。
+#   Python 版本要求、以及"哪些功能会限制 Python 版本"，见 README 4.2。
+#   Conda 基底快照（已剔除 pip 段，pip 依赖以各 requirements 文件为准）见 环境快照/environment-<环境名>.yml。
 # ============================================================================
 
 # 每个环境都还要装共享协议包（不在 PyPI 上，源码在仓库里）：

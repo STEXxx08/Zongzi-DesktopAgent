@@ -99,6 +99,7 @@ def test_theme_create_styled_menu_and_qss_intact():
 
 def test_mascot_and_desktop_shell_lazy_imports_in_subprocess():
     """验证导入 ui.mascot 与 ui.desktop_shell 时不会急切加载 Live2D/SpritePack/设置弹窗模块。"""
+    pytest.importorskip("PySide6")
     code = (
         "import sys\n"
         "import ui.mascot as m\n"

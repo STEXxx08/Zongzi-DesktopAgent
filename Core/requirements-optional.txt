@@ -8,6 +8,10 @@
 #   img_cap   Core/img_cap/blip/         Core/img_cap/blip/requirements.txt
 #   ocr       Core/ocr/paddle/           Core/ocr/paddle/requirements.txt
 #
+#   两份文件已自含 Core 公共 Web 依赖（flask / pydantic / loguru / PyYAML / requests），
+#   若装进独立新环境，执行完 pip install -r 后仍需手动安装共享协议包：
+#     pip install -e con-datapack-1.11
+#
 #   启用方式：把 Core/config.yaml 的 Startup 段里对应项改成 true，
 #   或临时 `python agent_stack.py start --only imgcap`。
 #

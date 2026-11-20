@@ -2,3 +2,4 @@
 #   service.desktop_shell.enable=false 时 Bot 可以完全不装这个文件
 # 份量定位：本文件 = Bot/requirements.txt（公共）之外的"可选界面"那一份
 PySide6>=6.6,<7
+# Live2D 渲染模式（ui/mascot/live2d_view.py）还需可选安装 live2d-py（见 Bot/requirements-optional.txt，未装时自动回退内置矢量猫娘）

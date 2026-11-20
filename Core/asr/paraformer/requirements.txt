@@ -12,4 +12,4 @@
 #    uv 项目声明、已过期，**以本文件为准**（torch 用第 2 段那条 cu128 命令装）。
 
 funasr==1.1.4
-soundfile==0.14.0        # Core/utils/audio_util.py:20（读音频）
+soundfile==0.14.0        # Core/utils/audio_util.py:25,41（读音频）

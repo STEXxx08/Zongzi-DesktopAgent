@@ -8,16 +8,16 @@
 #
 #   ① GPT-SoVITS 自己的 FastAPI 服务（默认 127.0.0.1:11002）
 #        入口：Core/GPT-SoVITS/zongzi_api.py（工作目录 = GPT-SoVITS）
-#        依赖：Core/GPT-SoVITS/requirements.txt + Core/GPT-SoVITS/environment.yaml
-#              ＋ 本文件（公共部分）
+#        依赖：Core/GPT-SoVITS/requirements.txt ＋ 本文件（公共部分）
+#              （同目录 environment.yaml 为早期 Linux 导出，Windows Conda 基底快照见 环境快照/environment-GPTSoVits.yml）
 #
-#   ② Core 侧的 tts 服务（starter.py tts，走 HTTP 转发）
-#        实现：Core/tts/gpt_sovits/model.py
+#   ② Core 侧的 tts 服务（starter.py tts，上游遗留的未实现占位桩）
+#        实现：Core/tts/app.py 与 Core/tts/gpt_sovits/model.py（调用会抛 NotImplementedError，实际均走 ①）
 #        依赖：Core/tts/gpt_sovits/requirements.txt ＋ 本文件（公共部分）
 #
 # ── 系统依赖（不是 pip 包）───────────────────────────────────────────────────
 #   jieba_fast / pyopenjtalk：PyPI 上**只有源码包**，没有 Windows 轮子，必须本地编译
-#   （需要 MSVC 生成工具）。它们是 GPT-SoVITS 自己的依赖，见 README 2.5 特殊情况 3。
+#   （需要 MSVC 生成工具）。它们是 GPT-SoVITS 自己的依赖，见 README 4.2。
 #
 # ⚠️ 完整实测快照见 环境快照/environment-GPTSoVits.yml
 # ============================================================================
@@ -28,3 +28,4 @@ loguru
 PyYAML
 typing-extensions
 requests                 # Core/common/decorator.py:4
+uvicorn                  # Core/GPT-SoVITS/zongzi_api.py:115 直接 import uvicorn；GPT-SoVITS/requirements.txt 未显式列出
